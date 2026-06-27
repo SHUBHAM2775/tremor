@@ -37,7 +37,7 @@ import {
   Legend,
 } from "recharts";
 
-const API_BASE = "";
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || "";
 
 // Helper to perform safe fetch and JSON parsing
 async function safeFetchJson<T>(url: string, options?: RequestInit): Promise<T> {
