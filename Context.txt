@@ -1,0 +1,178 @@
+# Tremor — Project Context
+
+Paste this whole file into a new chat to bring any AI assistant up to speed instantly.
+
+---
+
+## PROJECT OVERVIEW
+
+**Name:** Tremor
+**Tagline:** "A seismograph for Wikipedia."
+
+**One-line concept:** A live dashboard that detects which Wikipedia pages are currently in an "edit war" (active conflict/controversy) in real time, using genuine trained ML — not just an LLM wrapper — with an LLM used only as a final plain-English explanation layer.
+
+**What it actually does:**
+Wikipedia pages get edited constantly. Most edits are routine. Some pages enter sustained conflict — repeated reverts between editors, usually because the topic is genuinely controversial. This project detects that automatically, in real time, and presents it as a browsable, visual product: which pages are "in conflict" right now, what topic/category the conflict belongs to, and a human-readable summary of what the dispute is actually about.
+
+**Why this project:**
+- Wikipedia's edit history is fully public, official, well-documented data — zero scraping risk, zero legal risk, zero cost.
+- Contains multiple genuinely separable real ML problems, not just one model bolted onto an API call.
+- Inherently interesting to browse without forcing gamification — a live "what is the internet currently arguing about" feed has natural curiosity appeal on its own.
+- Original — almost nobody has built a public, real-time version of this.
+
+## CORE REQUIREMENTS THIS PROJECT MUST SATISFY
+
+1. Niche — not an overdone idea.
+2. Genuine ML — real model training, not just calling an LLM API and calling it "AI." This is non-negotiable.
+3. Full web app integration, not just a notebook.
+4. Uses an LLM (Gemini or Groq) only as a supporting layer (e.g., generating explanations) — never as the core intelligence.
+5. Fun to browse — good UX/visual design, not a boring dashboard.
+6. Industry-level / resume-worthy.
+7. Real, freely accessible data — no scraping wars, no copyright walls, no paid/locked APIs as a blocker.
+
+## SCOPE: VERSION A vs VERSION B
+
+**Version A (build this first, full scope for now):**
+- Anomaly detection — which pages are in unusual conflict right now
+- Unsupervised clustering — what topic/category the conflict is about
+- No manual data labeling required. Fully buildable solo with current skills.
+
+**Version B (optional, only after Version A is fully working):**
+- Add a supervised transformer classifier that labels conflict TYPE (political / vandalism / factual dispute / etc.)
+- Requires manually building a labeled dataset by reading Wikipedia ArbCom cases and edit-warring noticeboard archives — genuinely tedious manual "read and judge" work, not coding.
+- Decision on whether to pursue this is deferred until Version A works and I know if I have appetite for the manual labeling grind.
+
+## THE ML BREAKDOWN — WHAT'S ACTUALLY ML VS NOT (important distinction, care a lot about this)
+
+1. **Revert chain detection** — NOT ML. Pure logic/algorithm: compare revision diffs/hashes to detect A→B→A revert patterns. Never misrepresent this as ML.
+
+2. **Conflict intensity / anomaly scoring** — REAL ML (unsupervised). Build a time-series of edit/revert frequency per page. Detect deviations from a normal baseline. Start with Z-score or STL decomposition; can upgrade to Isolation Forest if simple thresholds underperform.
+
+3. **Topic/conflict clustering** — REAL ML (unsupervised). Generate sentence-transformer embeddings of conflicted pages' content/edit comments. Cluster with HDBSCAN. Reduce to 2D for visualization with UMAP.
+
+4. **(Version B only) Conflict type classification** — REAL ML (supervised). Fine-tune a lightweight transformer (DistilBERT) on manually labeled historical edit-war examples to classify dispute type. This is the piece that most impresses recruiters ("I fine-tuned a transformer"), but it needs the manual labeling dataset work first.
+
+5. **(Optional stretch, Version B+) Escalation prediction** — REAL ML (supervised/forecasting). Predict whether a page will escalate into sustained conflict in the next 24–48h, using engineered features (edit velocity, revert ratio, unique editor count) with XGBoost or a small LSTM. Only attempt after everything else works and is validated.
+
+**LLM role (Gemini/Groq):** ONLY used to take flagged conflict data (top revert comments, diffs) for a page and generate a plain-English paragraph explaining what the dispute is about. This is a UX layer on top of real ML outputs — explicitly not the core intelligence of the project.
+
+## DIFFICULTY / FEASIBILITY (honest assessment)
+
+- Difficulty: 7/10 — not because any single piece is exotic, but because of stacking 3–4 different ML techniques plus a real-time-feeling web app and integrating them cleanly.
+- Doable-for-me: 7/10 given current background (advanced full-stack, ML basics, new to building own datasets and fine-tuning transformers).
+- Drops to 6/10 difficulty / 8/10 doable if scope sticks to Version A only and skips escalation prediction.
+- Biggest real risk: NOT the live data pipeline (that part is genuinely easy — a few focused days). The risk is the Version B manual labeling step — tedious, non-coding work, and the most likely place a project like this gets abandoned.
+
+## DECIDED PLAN
+
+Build Version A first, completely. Decide on Version B only after Version A is fully working and deployed.
+
+## TECH STACK
+
+**Data ingestion:**
+- Wikipedia EventStreams API (`https://stream.wikimedia.org/v2/stream/recentchange`) — live edit feed, via `sseclient-py`
+- Wikipedia REST API — full historical revision pulls for specific pages
+- Wikipedia XML dumps — only needed if/when pursuing Version B's labeled dataset
+
+**Backend:**
+- Python + FastAPI
+- SQLAlchemy ORM
+- Database: local SQLite (`sqlite:///./dev.db`) by default for zero-setup start; designed so switching to Postgres later is a one-line `.env` change, no code change
+- Redis/job queue — deferred until actually needed for live stream processing
+
+**ML/NLP:**
+- scikit-learn — anomaly detection (Z-score/STL, or Isolation Forest)
+- sentence-transformers (`all-MiniLM-L6-v2`) — embeddings for clustering
+- HDBSCAN + UMAP — clustering and 2D visualization
+- (Version B only) HuggingFace Transformers — DistilBERT fine-tuning
+- (Stretch only) XGBoost — escalation prediction
+
+**LLM layer:**
+- Groq SDK and/or Google Generative AI SDK (Gemini) — explanation generation only
+
+**Frontend:**
+- Next.js + Tailwind
+- Live-updating feed (WebSockets or polling)
+- D3.js or a scatter plot library for the UMAP cluster map
+- Per-page edit timeline charts
+
+**Deployment:**
+- Frontend: Vercel
+- Backend + ML serving: Railway or Render (needs background job support, not pure serverless)
+- Model weights: HuggingFace Hub or simple cloud storage; train once, serve inference — not retrained live
+
+## WEEK-BY-WEEK PLAN (Version A scope)
+
+**Week 1 — Data pipeline**
+Set up Python project. Connect to EventStreams, get the live edit feed logging. Set up DB schema (`pages`, `revisions` tables). Write a historical revision-pull function for backfilling specific pages.
+Goal: DB quietly filling with real live Wikipedia edit data.
+
+**Week 2 — Revert detection + anomaly scoring**
+Build revert-chain detection logic (not ML). Build per-page time-series of edit/revert frequency. Implement baseline + anomaly detection (real ML).
+Goal: given any page, the code outputs an anomaly/conflict score.
+
+**Week 3 — Clustering**
+Generate embeddings for flagged conflicted pages. Run HDBSCAN. Reduce with UMAP for visualization.
+Goal: script outputs topic clusters of currently conflicted pages.
+
+**Week 4 — Backend API + frontend connection**
+Build FastAPI endpoints (flagged pages list, cluster data, per-page timeline). Start Next.js frontend with a basic live feed list view.
+Goal: working webpage showing a real, live contested-pages list.
+
+**Week 5 — Visual polish ("fun to browse" layer)**
+Build the 2D cluster map. Build per-page detail view (edit timeline, revert list, involved editors). Add Gemini/Groq explanation layer here.
+Goal: visually coherent, genuinely interesting product — not just functional.
+
+**Week 6 — Deploy, validate, document**
+Deploy frontend and backend. Validate anomaly detection against 5–10 KNOWN historical Wikipedia edit wars — pull their old data, check if the system would have flagged them. This is the "proof it actually works" step — don't skip it. Write a proper README explaining methodology, not just setup instructions.
+Goal: deployed, working, documented project with a resume-ready link.
+
+## PROJECT FOLDER STRUCTURE (skeleton — code not yet written)
+
+```
+wikiconflict/
+├── backend/
+│   ├── app/
+│   │   ├── __init__.py
+│   │   ├── main.py                # FastAPI entrypoint
+│   │   ├── db.py                  # DB connection setup (SQLite default, Postgres-ready)
+│   │   ├── models.py              # SQLAlchemy models: Page, Revision
+│   │   ├── ingest/
+│   │   │   ├── __init__.py
+│   │   │   ├── stream_listener.py # EventStreams live listener (Week 1)
+│   │   │   └── history_fetcher.py # Pull full history for a given page
+│   │   ├── ml/
+│   │   │   ├── __init__.py
+│   │   │   ├── anomaly.py         # Week 2: anomaly scoring
+│   │   │   ├── revert_detect.py   # Week 2: revert chain logic
+│   │   │   ├── embeddings.py      # Week 3: sentence-transformer embeddings
+│   │   │   └── clustering.py      # Week 3: HDBSCAN + UMAP
+│   │   ├── llm/
+│   │   │   ├── __init__.py
+│   │   │   └── summarize.py       # Week 5: Gemini/Groq explanation layer
+│   │   └── routers/
+│   │       ├── __init__.py
+│   │       ├── pages.py           # API endpoints for frontend
+│   │       └── clusters.py
+│   ├── requirements.txt
+│   └── .env                       # DB url, API keys — never commit
+│
+├── frontend/
+│   └── (Next.js app — set up in Week 4)
+│
+├── notebooks/
+│   └── exploration.ipynb          # prototype ML logic here before wiring into app
+│
+├── data/                          # local cache, gitignored
+│
+├── .gitignore
+└── README.md
+```
+
+**`Page` model fields:** id, title, wiki, anomaly_score (nullable), cluster_id (nullable), last_checked (nullable)
+
+**`Revision` model fields:** id, revision_id (Wikipedia's own rev ID), page_id (FK), editor, timestamp, byte_change, comment, is_revert (bool, default False), is_bot (bool, default False)
+
+## PROCESS NOTE FOR WHOEVER PICKS THIS UP
+
+I want command-line setup instructions and structural guidance, not code written wholesale for me. I want to write the actual implementation myself with direction — explain what goes in a file and why, give me commands to create structure, but let me write the logic.

@@ -1,0 +1,267 @@
+@import url('https://fonts.googleapis.com/css2?family=Newsreader:ital,wght@0,400;0,500;0,600;0,700;1,400;1,600&family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap');
+@import "tailwindcss";
+
+/*
+  TREMOR — Design System
+  Style: Swiss Modernism + Editorial Data Dashboard
+  Skill: UI/UX Pro Max | Palette: Zinc Editorial + Crimson Alert
+  Fonts: Newsreader (headings) · Inter (body/UI) · JetBrains Mono (data)
+*/
+
+:root {
+  /* ── Background layers (zinc mid-tone, not black, not white) */
+  --bg-base:     #111113;   /* zinc-900-ish — dark but not OLED */
+  --bg-surface:  #18181b;   /* zinc-900 */
+  --bg-card:     #1f1f23;   /* zinc-800 */
+  --bg-hover:    #27272a;   /* zinc-700 */
+  --bg-muted:    #2d2d31;
+
+  /* ── Borders (thin, structural — Swiss grid feel) */
+  --border:      #3f3f46;   /* zinc-600 */
+  --border-muted:#2d2d32;
+
+  /* ── Text */
+  --text-primary:#fafafa;   /* zinc-50 */
+  --text-body:   #d4d4d8;   /* zinc-300 */
+  --text-muted:  #71717a;   /* zinc-500 */
+  --text-subtle: #52525b;   /* zinc-600 */
+
+  /* ── Accent: single saturated crimson (like a breaking news ticker) */
+  --accent:      #e11d48;   /* rose-600 */
+  --accent-hi:   #fb7185;   /* rose-400 */
+  --accent-bg:   #1c0a10;
+  --accent-border: rgba(225, 29, 72, 0.25);
+
+  /* ── Semantic states */
+  --color-critical: #ef4444;
+  --color-elevated: #f97316;
+  --color-normal:   #22c55e;
+  --color-info:     #a1a1aa;
+
+  /* ── Fonts */
+  --font-heading: 'Newsreader', Georgia, serif;
+  --font-body:    'Inter', system-ui, sans-serif;
+  --font-mono:    'JetBrains Mono', 'Fira Code', monospace;
+
+  /* ── Spacing unit (8px base — Swiss grid) */
+  --unit: 8px;
+
+  /* ── Motion */
+  --ease: cubic-bezier(0.22, 1, 0.36, 1);
+  --dur-fast: 120ms;
+  --dur-mid:  200ms;
+  --dur-slow: 350ms;
+}
+
+@theme inline {
+  --color-background: var(--bg-base);
+  --color-foreground: var(--text-primary);
+}
+
+/* ── Reset & base */
+*, *::before, *::after { box-sizing: border-box; }
+
+html { height: 100%; background: var(--bg-base); }
+
+body {
+  min-height: 100%;
+  background: var(--bg-base);
+  color: var(--text-body);
+  font-family: var(--font-body);
+  font-size: 14px;
+  line-height: 1.55;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  overflow: hidden; /* let the inner flex column own scrolling */
+}
+
+/* ── Scrollbar — thin, structural */
+::-webkit-scrollbar       { width: 4px; height: 4px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--border-muted); border-radius: 2px; }
+::-webkit-scrollbar-thumb:hover { background: var(--border); }
+
+/* ── Swiss-style rule line (thin 1px divider) */
+.rule { border-top: 1px solid var(--border); }
+.rule-muted { border-top: 1px solid var(--border-muted); }
+
+/* ── Card: sharp, no blur, just border */
+.card {
+  background: var(--bg-card);
+  border: 1px solid var(--border-muted);
+  border-radius: 6px;
+}
+.card-surface {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-muted);
+  border-radius: 6px;
+}
+
+/* ── Accent pill (the "breaking news" badge) */
+.accent-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: 3px;
+  border: 1px solid var(--accent-border);
+  background: var(--accent-bg);
+  color: var(--accent-hi);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+/* ── Live dot */
+.live-dot {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent);
+  animation: live-blink 1.8s ease-in-out infinite;
+}
+
+/* ── Score badge sizes */
+.score-critical {
+  color: var(--color-critical);
+  background: rgba(239, 68, 68, 0.08);
+  border-color: rgba(239, 68, 68, 0.25);
+}
+.score-elevated {
+  color: var(--color-elevated);
+  background: rgba(249, 115, 22, 0.08);
+  border-color: rgba(249, 115, 22, 0.25);
+}
+.score-normal {
+  color: var(--color-normal);
+  background: rgba(34, 197, 94, 0.07);
+  border-color: rgba(34, 197, 94, 0.20);
+}
+
+/* ── Skeleton shimmer */
+.skeleton {
+  background: linear-gradient(
+    90deg,
+    var(--bg-hover) 0%,
+    var(--bg-muted) 50%,
+    var(--bg-hover) 100%
+  );
+  background-size: 300% 100%;
+  animation: skeleton-sweep 1.6s ease-in-out infinite;
+  border-radius: 4px;
+}
+
+/* ── Animations */
+@keyframes live-blink {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0.25; }
+}
+
+@keyframes skeleton-sweep {
+  0%   { background-position: 100% 0; }
+  100% { background-position: -100% 0; }
+}
+
+@keyframes fade-up {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes slide-right {
+  from { opacity: 0; transform: translateX(-8px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+
+@keyframes ticker-scroll {
+  from { transform: translateX(0); }
+  to   { transform: translateX(-50%); }
+}
+
+@keyframes spike-pulse {
+  0%   { r: 0; opacity: 0.7; }
+  70%  { r: 18; opacity: 0.15; }
+  100% { r: 22; opacity: 0; }
+}
+
+@keyframes spike-glow {
+  0%, 100% { opacity: 0.6; }
+  50%       { opacity: 1.0; }
+}
+
+@keyframes slide-in-right {
+  from { opacity: 0; transform: translateX(20px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+
+@keyframes fetch-bounce {
+  0%, 80%, 100% { transform: scale(0); opacity: 0.4; }
+  40%           { transform: scale(1); opacity: 1; }
+}
+
+.anim-fade-up   { animation: fade-up var(--dur-mid) var(--ease) both; }
+.anim-slide-r   { animation: slide-right var(--dur-mid) var(--ease) both; }
+
+/* ── Ticker tape
+   Layout: flex row.
+     .ticker-badge  — fixed-width LIVE badge cell (flex-shrink-0)
+     .ticker-track  — overflow-hidden flex-1 cell that contains the scrolling content
+     .ticker-inner  — the actual scrolling inline-flex strip
+   This ensures ticker text never starts behind/under the LIVE badge. */
+.ticker-wrap {
+  display: flex;
+  align-items: center;
+  overflow: hidden;
+  white-space: nowrap;
+  border-top: 1px solid var(--border-muted);
+  border-bottom: 1px solid var(--border-muted);
+}
+/* Fixed-width badge zone — text will never overlap this */
+.ticker-badge {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 12px;
+  height: 100%;
+  border-right: 1px solid var(--accent-border);
+  color: var(--accent-hi);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  background: var(--accent-bg);
+  z-index: 1;   /* stays above the marquee at all scroll positions */
+}
+/* Scrolling track — constrained to the space right of the badge */
+.ticker-track {
+  flex: 1;
+  overflow: hidden;
+  position: relative;
+  height: 100%;
+  display: flex;
+  align-items: center;
+}
+.ticker-inner {
+  display: inline-flex;
+  animation: ticker-scroll 40s linear infinite;
+  will-change: transform;
+}
+.ticker-inner:hover { animation-play-state: paused; }
+
+/* ── Focus visible */
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* ── Reduced motion */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
