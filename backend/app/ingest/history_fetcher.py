@@ -1,4 +1,5 @@
 import requests
+import time
 from datetime import datetime, timezone
 import argparse
 from app.db import SessionLocal
@@ -8,6 +9,43 @@ API_URL = "https://en.wikipedia.org/w/api.php"
 HEADERS = {
     "User-Agent": "Tremor/1.0 (https://github.com/username/tremor; contact: dev@example.com)"
 }
+
+def wikipedia_api_request(url, params, headers, timeout=20, max_retries=5, initial_backoff=5.0, max_backoff=60.0):
+    """
+    Sends a GET request to the Wikipedia API, with retries and exponential backoff
+    for HTTP 429 Rate Limit responses and connection errors.
+    """
+    backoff = initial_backoff
+    for attempt in range(max_retries + 1):
+        try:
+            res = requests.get(url, params=params, headers=headers, timeout=timeout)
+            
+            # Handle HTTP 429 Rate Limit
+            if res.status_code == 429:
+                retry_after_header = res.headers.get("Retry-After")
+                retry_seconds = backoff
+                if retry_after_header:
+                    try:
+                        retry_seconds = float(retry_after_header)
+                    except ValueError:
+                        pass
+                print(f"[Wikipedia API] Hit 429 Rate Limit. Retrying in {retry_seconds:.1f} seconds (attempt {attempt + 1}/{max_retries})...")
+                time.sleep(retry_seconds)
+                backoff = min(backoff * 2, max_backoff)
+                continue
+            
+            res.raise_for_status()
+            return res.json()
+        except requests.exceptions.RequestException as e:
+            if attempt == max_retries:
+                print(f"ERROR: Max retries ({max_retries}) exhausted for Wikipedia API request: {e!r}")
+                raise
+            
+            print(f"[Wikipedia API] Request error: {e!r}. Retrying in {backoff:.1f} seconds (attempt {attempt + 1}/{max_retries})...")
+            time.sleep(backoff)
+            backoff = min(backoff * 2, max_backoff)
+    
+    raise requests.exceptions.RequestException("Max retries exceeded")
 
 
 def _get_or_create_page(db, title: str) -> Page:
@@ -60,9 +98,7 @@ def fetch_and_store_history(db, title: str, limit: int = 100) -> int:
     }
 
     try:
-        response = requests.get(API_URL, headers=HEADERS, params=params, timeout=20)
-        response.raise_for_status()
-        data = response.json()
+        data = wikipedia_api_request(API_URL, params, HEADERS, timeout=20)
     except Exception as e:
         print(f"Error querying Wikipedia API: {e!r}")
         raise

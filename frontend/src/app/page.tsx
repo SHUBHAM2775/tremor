@@ -1069,7 +1069,7 @@ export default function Dashboard() {
     try {
       const [pd, cd] = await Promise.all([
         safeFetchJson<PageInfo[]>(`${API_BASE}/api/pages?limit=${pagesLimit}`),
-        safeFetchJson<ClusterPage[]>(`${API_BASE}/api/clusters?limit=2000`),
+        safeFetchJson<ClusterPage[]>(`${API_BASE}/api/clusters?limit=1000`),
       ]);
       setClusters(cd);
       setPages(pd);
@@ -1140,9 +1140,11 @@ export default function Dashboard() {
 
     const totalTracked = bufferInfo ? bufferInfo.total_tracked : 0;
     const currentRendered = pages.length;
+    const cap = bufferInfo ? bufferInfo.cap : 1000;
 
     // Case 1: Page forward through already tracked articles in the DB/cache
     if (currentRendered < totalTracked) {
+      if (currentRendered >= cap) return;
       setLoadingLoadMore(true);
       const newLimit = pagesLimit + 100;
       setPagesLimit(newLimit);
@@ -1207,7 +1209,7 @@ export default function Dashboard() {
       setPagesLimit(newLimit);
       const [pd, cd] = await Promise.all([
         safeFetchJson<PageInfo[]>(`${API_BASE}/api/pages?limit=${newLimit}`),
-        safeFetchJson<ClusterPage[]>(`${API_BASE}/api/clusters?limit=2000`),
+        safeFetchJson<ClusterPage[]>(`${API_BASE}/api/clusters?limit=1000`),
       ]);
       setClusters(cd);
       setPages(pd);
@@ -1691,54 +1693,59 @@ export default function Dashboard() {
             )}
 
             {/* Load 100 More Button */}
-            {pages.length > 0 && !filterInputValue && (
-              <div className="p-4 border-t border-[var(--border-muted)] bg-[var(--bg-base)] flex flex-col gap-2">
-                {loadMoreMessage && (
-                  <div className="text-[10px] text-[var(--text-subtle)] flex items-center gap-2 mb-1 animate-pulse" style={{ fontFamily: "var(--font-mono)" }}>
-                    <span className="w-1.5 h-1.5 rounded-full bg-[var(--accent)] shrink-0" />
-                    {loadMoreMessage}
-                  </div>
-                )}
-                <button
-                  onClick={handleLoadMore}
-                  disabled={loadingLoadMore || (bufferInfo ? bufferInfo.total_tracked >= bufferInfo.cap : false)}
-                  className="w-full py-2.5 px-4 rounded text-[10px] font-semibold uppercase tracking-wider cursor-pointer transition-all duration-150 flex items-center justify-center gap-2 border"
-                  style={{
-                    background: loadingLoadMore
-                      ? "var(--bg-card)"
-                      : (bufferInfo && bufferInfo.total_tracked >= bufferInfo.cap)
-                        ? "var(--bg-card)"
-                        : "var(--accent)",
-                    color: (bufferInfo && bufferInfo.total_tracked >= bufferInfo.cap)
-                      ? "var(--text-muted)"
-                      : "#fff",
-                    borderColor: "var(--border-muted)",
-                    cursor: (loadingLoadMore || (bufferInfo && bufferInfo.total_tracked >= bufferInfo.cap)) ? "not-allowed" : "pointer",
-                    opacity: loadingLoadMore ? 0.7 : 1,
-                  }}
-                >
-                  {loadingLoadMore ? (
-                    <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                  ) : (
-                    <Plus className="w-3.5 h-3.5" />
+            {pages.length > 0 && !filterInputValue && (() => {
+              const cap = bufferInfo ? bufferInfo.cap : 1000;
+              const totalTracked = bufferInfo ? bufferInfo.total_tracked : 0;
+              const currentRendered = pages.length;
+              const canPageForward = currentRendered < totalTracked && currentRendered < cap;
+              const canFetchNew = currentRendered >= totalTracked && totalTracked < cap;
+              const isCapReached = !canPageForward && !canFetchNew;
+
+              return (
+                <div className="p-4 border-t border-[var(--border-muted)] bg-[var(--bg-base)] flex flex-col gap-2">
+                  {loadMoreMessage && (
+                    <div className="text-[10px] text-[var(--text-subtle)] flex items-center gap-2 mb-1 animate-pulse" style={{ fontFamily: "var(--font-mono)" }}>
+                      <span className="w-1.5 h-1.5 rounded-full bg-[var(--accent)] shrink-0" />
+                      {loadMoreMessage}
+                    </div>
                   )}
-                  {bufferInfo && bufferInfo.total_tracked >= bufferInfo.cap
-                    ? `Tracking cap reached (${bufferInfo.cap} articles)`
-                    : loadingLoadMore
-                      ? "Loading Articles..."
-                      : bufferInfo
-                        ? bufferInfo.redis_available
-                          ? `Load 100 More (Buffer: ${bufferInfo.buffer_size})`
-                          : "Load 100 More (Direct Fetch)"
+                  <button
+                    onClick={handleLoadMore}
+                    disabled={loadingLoadMore || isCapReached}
+                    className="w-full py-2.5 px-4 rounded text-[10px] font-semibold uppercase tracking-wider cursor-pointer transition-all duration-150 flex items-center justify-center gap-2 border"
+                    style={{
+                      background: loadingLoadMore
+                        ? "var(--bg-card)"
+                        : isCapReached
+                          ? "var(--bg-card)"
+                          : "var(--accent)",
+                      color: isCapReached
+                        ? "var(--text-muted)"
+                        : "#fff",
+                      borderColor: "var(--border-muted)",
+                      cursor: (loadingLoadMore || isCapReached) ? "not-allowed" : "pointer",
+                      opacity: loadingLoadMore ? 0.7 : 1,
+                    }}
+                  >
+                    {loadingLoadMore ? (
+                      <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                    ) : (
+                      <Plus className="w-3.5 h-3.5" />
+                    )}
+                    {isCapReached
+                      ? `Tracking cap reached (${cap} articles)`
+                      : loadingLoadMore
+                        ? "Loading Articles..."
                         : "Load 100 More"}
-                </button>
-                {bufferInfo && (
-                  <div className="text-[9px] text-[var(--text-subtle)] text-center mt-1" style={{ fontFamily: "var(--font-mono)" }}>
-                    Tracked: {bufferInfo.total_tracked} / {bufferInfo.cap} articles
-                  </div>
-                )}
-              </div>
-            )}
+                  </button>
+                  {bufferInfo && (
+                    <div className="text-[9px] text-[var(--text-subtle)] text-center mt-1" style={{ fontFamily: "var(--font-mono)" }}>
+                      Tracked: {bufferInfo.total_tracked} / {bufferInfo.cap} articles
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
           </div>
         </section>
 

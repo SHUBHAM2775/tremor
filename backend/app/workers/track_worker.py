@@ -90,11 +90,11 @@ def run_track_job(title: str) -> dict:
         db.add(page)
         db.commit()
 
-        # Enforce cap (2,000 articles)
+        # Enforce cap (1,000 articles)
         current_count = db.query(Page).count()
-        if current_count > 2000:
-            logger.info(f"[Worker] Page count ({current_count}) exceeds 2000 cap. Evicting pages to make room...")
-            evict_pages_to_make_room(db, current_count - 2000)
+        if current_count > 1000:
+            logger.info(f"[Worker] Page count ({current_count}) exceeds 1000 cap. Evicting pages to make room...")
+            evict_pages_to_make_room(db, current_count - 1000)
 
         # Invalidate response caches so the next API call sees fresh data
         try:
@@ -128,7 +128,7 @@ def run_track_job(title: str) -> dict:
 def run_load_more_batch_job(titles: list[str]) -> dict:
     """
     RQ job: fetch history, score, and default coordinates for a batch of titles.
-    Runs eviction if adding this batch would exceed the 2000 article cap.
+    Runs eviction if adding this batch would exceed the 1000 article cap.
     """
     db = SessionLocal()
     try:
@@ -136,9 +136,9 @@ def run_load_more_batch_job(titles: list[str]) -> dict:
         
         # Enforce cap & eviction
         current_count = db.query(Page).count()
-        excess = (current_count + len(titles)) - 2000
+        excess = (current_count + len(titles)) - 1000
         if excess > 0:
-            logger.info(f"[Worker] Batch size would exceed 2000 cap. Evicting {excess} pages first...")
+            logger.info(f"[Worker] Batch size would exceed 1000 cap. Evicting {excess} pages first...")
             evict_pages_to_make_room(db, excess)
             
         success_count = 0

@@ -227,7 +227,7 @@ We successfully completed all Phase 4 features and reliability audits:
 ---
 
 ## 9. PHASE 5 — UMAP CENTERING, BATCH LOADING, & STABILIZATION (JUNE 2026)
-We successfully completed all Phase 5 improvements, focusing on UMAP layout centering, optimized paginated batch loading, a 2,000-article cap, and statistical scoring corrections:
+We successfully completed all Phase 5 improvements, focusing on UMAP layout centering, optimized paginated batch loading, a 1,000-article cap, and statistical scoring corrections:
 
 1. **Symmetric UMAP Viewport Mapping & Default Coordinates:**
    * **Centroid Recentering**: Normalized computed UMAP coordinates in `clustering.py` so that their centroid matches `(0, 0)` exactly, and scaled coordinates to lie within the `[-1.0, 1.0]` bounds.
@@ -246,6 +246,6 @@ We successfully completed all Phase 5 improvements, focusing on UMAP layout cent
    * *Result*: Corrected the score for "Australian Institute of Architects Awards and Prizes" from `63.49` (High Conflict) to `0.89` (Quiet), matching its actual history.
 
 4. **Database Cleanup & Cap Enforcement:**
-   * **Cap Eviction (2,000)**: Enforced a strict 2,000-page limit in `track_worker.py` and `pages.py`. When the database exceeds 2,000, it automatically evicts the lowest-conflict, stalest articles, while protecting high-conflict pages (anomaly score > 2.0).
+   * **Cap Eviction (1,000)**: Enforced a strict 1,000-page limit in `track_worker.py` and `pages.py`. When the database exceeds 1,000, it automatically evicts the lowest-conflict, stalest articles, while protecting high-conflict pages (anomaly score > 2.0).
    * **Database Pruning**: Cleared over 33,000 redundant pages created by the background stream listener, pruning the database to a clean starting count of ~1,000 pages so that the cap logic functions properly and UMAP calculations run in seconds.
    * **Serial Numbers**: Added sequential numbering (`idx + 1.`) before each article title in the sidebar list to make the total visible count immediately obvious.

@@ -4,8 +4,8 @@ import threading
 import time
 from datetime import datetime, timezone
 
-import requests
-import sseclient
+import requests  # type: ignore
+import sseclient  # type: ignore
 
 from app.db import SessionLocal, init_db
 from app.models import Page, Revision
@@ -54,13 +54,27 @@ def get_or_create_page(db, title: str) -> Page:
     return page
 
 
+# Rolling stream metrics
+processed_counter = 0
+matched_counter = 0
+buffered_counter = 0
+
+
 def handle_event(db, event: dict):
+    global processed_counter, matched_counter, buffered_counter
     if event.get("type") != "edit":
         return
     if event.get("wiki") != TARGET_WIKI:
         return
     if event.get("namespace") != TARGET_NAMESPACE:
         return
+
+    processed_counter += 1
+    if processed_counter % 1000 == 0:
+        safe_log(
+            f"[STREAM] Ingesting... Processed {processed_counter} events "
+            f"(matched {matched_counter} tracked pages, buffered {buffered_counter} candidates)."
+        )
 
     title = event.get("title")
     rev_id = event.get("revision", {}).get("new")
@@ -76,6 +90,7 @@ def handle_event(db, event: dict):
         # Only ingest revisions for pages already tracked in the database
         page = db.query(Page).filter_by(title=title).first()
         if page:
+            matched_counter += 1
             comment = event.get("comment", "")
             tags    = event.get("tags", [])
             is_revert = is_revert_edit(comment, tags)
@@ -105,6 +120,7 @@ def handle_event(db, event: dict):
             if is_redis_available():
                 added = push_candidate_to_buffer(title)
                 if added:
+                    buffered_counter += 1
                     safe_log(f"[BUFFER] Buffered candidate title: '{title}'")
 
     except Exception as exc:
@@ -114,6 +130,9 @@ def handle_event(db, event: dict):
             db.rollback()
         except Exception:
             pass
+    finally:
+        # Evict memory/cache to prevent SQLAlchemy Session bloat
+        db.expire_all()
 
 
 def run_scoring_loop():
@@ -143,8 +162,8 @@ def run_scoring_loop():
                 for page in eligible_pages:
                     score = compute_page_anomaly_score(db, page)
                     if page.anomaly_score != score or page.last_checked is None:
-                        page.anomaly_score = score
-                        page.last_checked  = datetime.now(timezone.utc)
+                        page.anomaly_score = score  # type: ignore
+                        page.last_checked  = datetime.now(timezone.utc)  # type: ignore
                         db.add(page)
                         updated += 1
 
@@ -156,8 +175,8 @@ def run_scoring_loop():
                 ).all()
 
                 for page in ineligible_pages:
-                    page.anomaly_score = 0.0
-                    page.last_checked  = datetime.now(timezone.utc)
+                    page.anomaly_score = 0.0  # type: ignore
+                    page.last_checked  = datetime.now(timezone.utc)  # type: ignore
                     db.add(page)
                     updated += 1
 
@@ -192,7 +211,7 @@ def run():
         try:
             safe_log("[STREAM] Connecting...")
             response = requests.get(STREAM_URL, headers=headers, stream=True, timeout=30)
-            client = sseclient.SSEClient(response)
+            client = sseclient.SSEClient(response)  # type: ignore
 
             retry_delay = 5  # reset backoff on successful connection
             for event in client.events():
