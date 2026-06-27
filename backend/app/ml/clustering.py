@@ -1,5 +1,3 @@
-import umap
-import hdbscan
 import numpy as np
 from sqlalchemy.orm import Session
 from app.db import SessionLocal
@@ -12,6 +10,8 @@ def perform_clustering(db: Session):
     applies UMAP dimensionality reduction to 2D, runs HDBSCAN clustering,
     and updates Page cluster_id, x, and y coordinates in the database.
     """
+    import umap
+    import hdbscan
     # 1. Fetch all pages with edits
     pages = db.query(Page).all()
     n_pages = len(pages)

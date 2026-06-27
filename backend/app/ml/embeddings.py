@@ -1,6 +1,6 @@
+from typing import cast
 import numpy as np
 from sqlalchemy.orm import Session
-from sentence_transformers import SentenceTransformer
 from app.models import Page, Revision
 
 # Use the recommended lightweight and fast model
@@ -13,6 +13,7 @@ def get_model():
     """
     global model
     if model is None:
+        from sentence_transformers import SentenceTransformer
         print(f"Loading sentence-transformer model: {MODEL_NAME}...")
         model = SentenceTransformer(MODEL_NAME)
     return model
@@ -49,4 +50,4 @@ def generate_embeddings(texts: list[str]) -> np.ndarray:
         
     s_model = get_model()
     embeddings = s_model.encode(texts, show_progress_bar=True)
-    return embeddings
+    return cast(np.ndarray, embeddings)

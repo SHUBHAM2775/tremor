@@ -11,10 +11,12 @@ DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./dev.db")
 if DATABASE_URL.startswith("postgres://"):
     DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
 
-# SQLite connection arguments for concurrency
+# SQLite and PostgreSQL connection arguments
 connect_args = {}
 if DATABASE_URL.startswith("sqlite") or "sqlite" in DATABASE_URL:
     connect_args = {"check_same_thread": False, "timeout": 30}
+elif "postgresql" in DATABASE_URL or DATABASE_URL.startswith("postgres"):
+    connect_args = {"connect_timeout": 10}
 
 engine = create_engine(DATABASE_URL, connect_args=connect_args)
 
