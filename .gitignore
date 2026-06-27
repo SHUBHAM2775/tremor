@@ -5,8 +5,8 @@ __pycache__/
 .env
 .env.*
 !.env.example
-*.db
-dev.db
+*.db*
+dev.db*
 data/
 
 # Node / Next.js
