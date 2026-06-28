@@ -40,7 +40,7 @@ def get_clusters(limit: int = 200, db: Session = Depends(get_db)):
     ).limit(limit).all()
 
     result = [ClusterPageResponse.model_validate(p).model_dump(mode="json") for p in rows]
-    cache_set(cache_key, result)
+    cache_set(cache_key, result, ttl=600)
     return result
 
 

@@ -28,7 +28,7 @@ logger = logging.getLogger(__name__)
 REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
 
 # Cache TTL (seconds) for sidebar list and cluster map responses
-CACHE_TTL_SECONDS = 30
+CACHE_TTL_SECONDS = 60
 
 # ── Lazy connection state ────────────────────────────────────────────────────
 # These are populated on first use (not at import time).
@@ -197,10 +197,11 @@ def invalidate_page_caches() -> None:
         logger.debug(f"[Cache] invalidate_page_caches failed: {exc!r}")
 
 
-def push_candidate_to_buffer(title: str, max_buffer_size: int = 150) -> bool:
+def push_candidate_to_buffer(title: str, max_buffer_size: int = 150, elevated: bool = False) -> bool:
     """
     Appends a page title to the candidate buffer if Redis is available.
     Deduplicates against tremor:candidate_set.
+    If elevated is True, uses LPUSH to put it at the head of the queue (priority).
     """
     if not _ensure_connected() or _redis_client is None:
         return False
@@ -217,7 +218,10 @@ def push_candidate_to_buffer(title: str, max_buffer_size: int = 150) -> bool:
         # Add to set and list inside a pipeline
         pipe = _redis_client.pipeline()
         pipe.sadd("tremor:candidate_set", title)
-        pipe.rpush("tremor:candidate_buffer", title)
+        if elevated:
+            pipe.lpush("tremor:candidate_buffer", title)
+        else:
+            pipe.rpush("tremor:candidate_buffer", title)
         pipe.execute()
         return True
     except Exception as exc:

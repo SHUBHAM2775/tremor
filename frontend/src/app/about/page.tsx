@@ -1,8 +1,9 @@
+// NOTE: Whenever a future change meaningfully affects how the system works, the About page's description must be updated to match in the same pass.
 "use client";
 
 import React from "react";
 import Link from "next/link";
-import { ArrowLeft, BookOpen, Flame, Activity, Globe, Compass, Cpu, HelpCircle } from "lucide-react";
+import { ArrowLeft, Flame, Activity, Globe, Compass, Cpu, Layers, Shield, Zap } from "lucide-react";
 
 export default function AboutPage() {
   return (
@@ -106,7 +107,7 @@ export default function AboutPage() {
                 </h3>
               </div>
               <p className="text-sm leading-relaxed text-[var(--text-body)]">
-                Tremor measures this conflict using a dynamic <strong>Conflict Score</strong> (a rolling statistical Z-score).
+                Tremor measures this conflict using a dynamic, two-component <strong>Conflict Score</strong> (baseline persistent war level combined with Z-score recency spikes).
               </p>
               <p className="text-sm leading-relaxed text-[var(--text-body)]">
                 Just like a seismograph registers background noise vs. tectonic activity:
@@ -175,35 +176,62 @@ export default function AboutPage() {
               The Technology Under the Hood
             </h3>
             <p className="text-xs text-[var(--text-muted)] leading-relaxed max-w-2xl">
-              Tremor does not rely on an LLM to decide what is important. It uses statistical machine learning and sentence embedding pipelines to capture structural patterns in real time.
+              Tremor does not rely on simple heuristics to decide what is important. It uses statistical machine learning, vector embedding layouts, and automated queue jobs.
             </p>
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6 text-xs">
             <div className="space-y-2 p-4 rounded card border-[var(--border-muted)]">
               <div className="flex items-center gap-1.5 text-[var(--text-primary)] font-bold mb-1">
-                <Globe className="w-4 h-4 text-[var(--accent-hi)]" /> Real-time Streaming
+                <Globe className="w-4 h-4 text-[var(--accent-hi)]" /> Dual Ingestion Pipeline
               </div>
               <p className="leading-relaxed text-[var(--text-body)]">
-                We tap directly into Wikimedia’s live server events. As edits happen anywhere in the world, they stream into our SQLite database within milliseconds.
+                We combine real-time stream listening (Server-Sent Events) with automated, GHA-scheduled polling scripts. Our polling script includes robust rate-limit backoffs and incremental batch checkpoints.
               </p>
             </div>
 
             <div className="space-y-2 p-4 rounded card border-[var(--border-muted)]">
               <div className="flex items-center gap-1.5 text-[var(--text-primary)] font-bold mb-1">
-                <Compass className="w-4 h-4 text-[var(--accent-hi)]" /> Vector Layout & UMAP
+                <Compass className="w-4 h-4 text-[var(--accent-hi)]" /> Vector Layout & Clustering
               </div>
               <p className="leading-relaxed text-[var(--text-body)]">
-                We convert page summaries into vector embeddings (numbers representing meaning). UMAP reduces this math into 2D coordinates so similar topics sit close to each other on the map.
+                We generate vector embeddings representing article semantic content. <strong>UMAP</strong> reduces these vectors to 2D coordinates for the visual map, while <strong>HDBSCAN</strong> automatically groups them into topical clusters.
               </p>
             </div>
 
             <div className="space-y-2 p-4 rounded card border-[var(--border-muted)]">
               <div className="flex items-center gap-1.5 text-[var(--text-primary)] font-bold mb-1">
-                <Cpu className="w-4 h-4 text-[var(--accent-hi)]" /> AI Summary Clerk
+                <Cpu className="w-4 h-4 text-[var(--accent-hi)]" /> Two-Component Scoring
               </div>
               <p className="leading-relaxed text-[var(--text-body)]">
-                An LLM is used <em>only</em> at the final stage. Instead of guessing who is fighting, it reads the statistical ML logs (edit descriptions, revert ratios) and writes a concise summary explaining the argument.
+                Our model takes the <code>max(base_score, spike_score)</code>: <em>base_score</em> tracks long-term historical revert activity; <em>spike_score</em> calculates a Z-score of recent 24-hour intensity against baseline, boosted by concurrent editor count.
+              </p>
+            </div>
+
+            <div className="space-y-2 p-4 rounded card border-[var(--border-muted)]">
+              <div className="flex items-center gap-1.5 text-[var(--text-primary)] font-bold mb-1">
+                <Zap className="w-4 h-4 text-[var(--accent-hi)]" /> In-Memory Firehose Scan
+              </div>
+              <p className="leading-relaxed text-[var(--text-body)]">
+                The stream listener monitors the entire live Wikipedia firehose. To avoid database bloat, untracked edits are aggregated in-memory. High-conflict titles are flagged and pushed to the Redis candidate queue.
+              </p>
+            </div>
+
+            <div className="space-y-2 p-4 rounded card border-[var(--border-muted)]">
+              <div className="flex items-center gap-1.5 text-[var(--text-primary)] font-bold mb-1">
+                <Shield className="w-4 h-4 text-[var(--accent-hi)]" /> Buffer Cap & Eviction
+              </div>
+              <p className="leading-relaxed text-[var(--text-body)]">
+                To protect databases, tracked articles are capped at 1,000. When new candidates are loaded from the Redis buffer, the lowest-conflict, least-checked pages are evicted, ensuring high-conflict articles stay tracked.
+              </p>
+            </div>
+
+            <div className="space-y-2 p-4 rounded card border-[var(--border-muted)]">
+              <div className="flex items-center gap-1.5 text-[var(--text-primary)] font-bold mb-1">
+                <Layers className="w-4 h-4 text-[var(--accent-hi)]" /> AI Dispute Summary
+              </div>
+              <p className="leading-relaxed text-[var(--text-body)]">
+                A Gemini LLM runs on-demand at the final layer. Rather than deciding who is correct, it summarizes the dispute by reading the telemetry log of reverts, comments, and editors.
               </p>
             </div>
           </div>

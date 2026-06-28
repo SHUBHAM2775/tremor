@@ -14,6 +14,7 @@ import {
   MapPin,
   ChevronRight,
   ChevronDown,
+  ChevronUp,
   TrendingUp,
   Info,
   X,
@@ -313,14 +314,32 @@ export default function Dashboard() {
   const [hoveredPage, setHoveredPage] = useState<ClusterPage | null>(null);
   const [hoveredClusterId, setHoveredClusterId] = useState<number | null>(null);
 
-  // ─── Debounced filter — only re-filter list 200ms after user stops typing ──
-  const [filterInputValue, setFilterInputValue] = useState("");
+  // ─── Unified Search and Filter ─────────────────────────────────────────────
   const [filterQuery, setFilterQuery] = useState("");
   const filterDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const handleFilterChange = useCallback((val: string) => {
-    setFilterInputValue(val);
+  
+  const handleSearchChange = useCallback((val: string) => {
+    setSearchTitle(val);
     if (filterDebounceRef.current) clearTimeout(filterDebounceRef.current);
     filterDebounceRef.current = setTimeout(() => setFilterQuery(val), 200);
+  }, []);
+
+  // Ref and scroll helpers for the articles sidebar
+  const articleListRef = useRef<HTMLDivElement>(null);
+
+  const scrollToTop = useCallback(() => {
+    if (articleListRef.current) {
+      articleListRef.current.scrollTo({ top: 0, behavior: "smooth" });
+    }
+  }, []);
+
+  const scrollToBottom = useCallback(() => {
+    if (articleListRef.current) {
+      articleListRef.current.scrollTo({
+        top: articleListRef.current.scrollHeight,
+        behavior: "smooth",
+      });
+    }
   }, []);
 
   // ─── On-demand Wikipedia search state ──────────────────────────────────────
@@ -1278,6 +1297,7 @@ export default function Dashboard() {
         setFetchStatus("done");
         setFetchMessage(`"${canonicalTitle}" added! Click to explore.`);
         setSearchTitle("");
+        setFilterQuery("");
         await fetchOverview();
         setSelectedId(found.id);
       } else {
@@ -1285,8 +1305,9 @@ export default function Dashboard() {
         setFetchMessage(`Fetch started for "${canonicalTitle}". Refresh in a moment.`);
         fetchOverview();
         setSearchTitle("");
+        setFilterQuery("");
       }
-    } catch (err) {
+    } catch {
       setFetchStatus("error");
       setFetchMessage("Failed to reach Wikipedia. Check your connection.");
     }
@@ -1304,6 +1325,7 @@ export default function Dashboard() {
     if (exactMatch) {
       setSelectedId(exactMatch.id);
       setSearchTitle("");
+      setFilterQuery("");
       return;
     }
     // Not in DB — trigger on-demand fetch
@@ -1481,14 +1503,7 @@ export default function Dashboard() {
               id="add-article-input"
               type="text"
               value={searchTitle}
-              onChange={(e) => {
-                setSearchTitle(e.target.value);
-                // Reset fetch status when user types a new title
-                if (fetchStatus !== "idle") {
-                  setFetchStatus("idle");
-                  setFetchMessage("");
-                }
-              }}
+              onChange={(e) => handleSearchChange(e.target.value)}
               placeholder="Search or add Wikipedia article…"
               className="flex-1 px-3 py-2 rounded text-sm focus:outline-none"
               style={{
@@ -1540,176 +1555,136 @@ export default function Dashboard() {
             </div>
           )}
 
-          {/* Filter tracked articles input */}
-          {pages.length > 0 && (
-            <div className="px-3 pb-2.5 pt-2 shrink-0">
-              <input
-                id="filter-article-input"
-                type="text"
-                value={filterInputValue}
-                onChange={(e) => handleFilterChange(e.target.value)}
-                placeholder="Filter tracked articles…"
-                className="w-full px-3 py-1.5 rounded text-xs focus:outline-none"
-                style={{
-                  background: "var(--bg-base)",
-                  border: "1px solid var(--border-muted)",
-                  color: "var(--text-primary)",
-                  fontFamily: "var(--font-body)",
-                }}
-                onFocus={(e) => (e.currentTarget.style.borderColor = "var(--accent)")}
-                onBlur={(e) => (e.currentTarget.style.borderColor = "var(--border-muted)")}
-              />
-            </div>
-          )}
-
-          {/* Article list */}
-          <div className="flex-1 overflow-y-auto">
-            {loadingPages && pages.length === 0 ? (
-              <div className="p-3 space-y-2">
-                {Array.from({ length: 7 }).map((_, i) => (
-                  <div key={i} className="skeleton h-12 w-full" style={{ animationDelay: `${i * 0.08}s` }} />
-                ))}
-              </div>
-            ) : pages.length === 0 ? (
-              <div
-                className="flex flex-col items-center justify-center py-12 gap-3 px-4 text-center"
-                style={{ color: "var(--text-subtle)" }}
-              >
-                <BookOpen className="w-8 h-8" style={{ color: "var(--border)" }} />
-                <div>
-                  <p className="text-sm font-medium" style={{ color: "var(--text-muted)" }}>No articles tracked yet</p>
-                  <p className="text-xs mt-1 leading-relaxed">Type a Wikipedia article title above and press enter to start tracking its edit activity.</p>
+          {/* Article list with jump to top/bottom controls */}
+          <div className="relative flex-1 overflow-hidden group/sidebar-scroll">
+            <div ref={articleListRef} className="h-full overflow-y-auto">
+              {loadingPages && pages.length === 0 ? (
+                <div className="p-3 space-y-2">
+                  {Array.from({ length: 7 }).map((_, i) => (
+                    <div key={i} className="skeleton h-12 w-full" style={{ animationDelay: `${i * 0.08}s` }} />
+                  ))}
                 </div>
-              </div>
-            ) : filteredPages.length === 0 ? (
-              <div className="flex flex-col gap-0">
+              ) : pages.length === 0 ? (
                 <div
-                  className="flex flex-col items-center justify-center py-8 gap-2 px-4 text-center"
+                  className="flex flex-col items-center justify-center py-12 gap-3 px-4 text-center"
                   style={{ color: "var(--text-subtle)" }}
                 >
-                  <p className="text-xs">No tracked article matches <span style={{ color: "var(--text-muted)" }}>&#8220;{filterInputValue}&#8221;</span>.</p>
-                </div>
-                {/* On-demand Wikipedia fetch affordance */}
-                {fetchStatus === "idle" && filterInputValue.trim().length > 1 && (
-                  <div
-                    className="mx-3 mb-3 p-3 rounded cursor-pointer"
-                    style={{
-                      background: "var(--accent-bg)",
-                      border: "1px solid var(--accent-border)",
-                    }}
-                  >
-                    <p className="text-[11px] font-semibold mb-1" style={{ color: "var(--accent-hi)", fontFamily: "var(--font-mono)" }}>
-                      Not tracked yet — fetch from Wikipedia?
-                    </p>
-                    <p className="text-[10px] mb-2" style={{ color: "var(--text-muted)" }}>
-                      Pull revision history for &#8220;{filterInputValue.trim()}&#8221; and start tracking it live.
-                    </p>
-                    <button
-                      id="fetch-from-wikipedia-btn"
-                      onClick={() => {
-                        setSearchTitle(filterInputValue.trim());
-                        handleOnDemandFetch(filterInputValue.trim());
-                      }}
-                      className="text-[10px] font-semibold px-3 py-1.5 rounded cursor-pointer transition-opacity hover:opacity-80"
-                      style={{
-                        background: "var(--accent)",
-                        color: "#fff",
-                        fontFamily: "var(--font-mono)",
-                      }}
-                    >
-                      Fetch &#8220;{filterInputValue.trim().length > 22 ? filterInputValue.trim().substring(0, 20) + "…" : filterInputValue.trim()}&#8221; from Wikipedia
-                    </button>
+                  <BookOpen className="w-8 h-8" style={{ color: "var(--border)" }} />
+                  <div>
+                    <p className="text-sm font-medium" style={{ color: "var(--text-muted)" }}>No articles tracked yet</p>
+                    <p className="text-xs mt-1 leading-relaxed">Type a Wikipedia article title above and press enter to start tracking its edit activity.</p>
                   </div>
-                )}
-              </div>
-            ) : (
-              filteredPages.map((p, idx) => {
-                const isSelected = p.id === selectedId;
-                const score = p.anomaly_score || 0;
-                const level = getLevel(score);
-                const meta = LEVEL_META[level];
-
-                return (
-                  <button
-                    key={p.id}
-                    id={`article-${p.id}`}
-                    onClick={() => setSelectedId(p.id)}
-                    className={`w-full text-left flex items-center gap-3 px-4 py-3 cursor-pointer transition-colors duration-150 ${
-                      isSelected ? "" : "hover:bg-[var(--bg-hover)]/40"
-                    }`}
-                    style={{
-                      borderBottom: "1px solid var(--border-muted)",
-                      background: isSelected ? "var(--bg-card)" : "transparent",
-                      borderLeft: isSelected ? `3px solid var(--accent)` : "3px solid transparent",
-                    }}
+                </div>
+              ) : filteredPages.length === 0 ? (
+                <div className="flex flex-col gap-0">
+                  <div
+                    className="flex flex-col items-center justify-center py-8 gap-2 px-4 text-center"
+                    style={{ color: "var(--text-subtle)" }}
                   >
-                    {/* Score dot */}
-                    <span
-                      className="w-2 h-2 rounded-full shrink-0"
+                    <p className="text-xs">No tracked article matches <span style={{ color: "var(--text-muted)" }}>&#8220;{searchTitle}&#8221;</span>.</p>
+                  </div>
+                  {/* On-demand Wikipedia fetch affordance */}
+                  {fetchStatus === "idle" && searchTitle.trim().length > 1 && (
+                    <div
+                      className="mx-3 mb-3 p-3 rounded cursor-pointer"
                       style={{
-                        background: meta.dot,
-                        boxShadow: meta.dotPulse ? `0 0 6px ${meta.dot}` : "none",
-                        animation: meta.dotPulse ? "live-blink 1.5s ease-in-out infinite" : "none",
+                        background: "var(--accent-bg)",
+                        border: "1px solid var(--accent-border)",
                       }}
-                    />
-
-                    {/* Title */}
-                    <div className="flex-1 min-w-0">
-                      <div
-                        className="text-[9px] uppercase tracking-widest mb-0.5"
-                        style={{ fontFamily: "var(--font-mono)", color: "var(--text-subtle)" }}
-                      >
-                        {p.wiki}
-                        {p.cluster_id !== null && p.cluster_id !== -1
-                          ? ` · C${p.cluster_id}` : ""}
-                      </div>
-                      <div
-                        className="text-sm font-medium truncate"
-                        style={{ color: isSelected ? "var(--text-primary)" : "var(--text-body)" }}
-                      >
-                        {idx + 1}. {p.title}
-                      </div>
-                    </div>
-
-                    {/* Score badge */}
-                    <span
-                      className="text-[10px] font-semibold px-2 py-0.5 rounded border shrink-0"
-                      style={{ fontFamily: "var(--font-mono)" }}
-                      // Inline styles for score class since we're using CSS variables
-                      data-level={level}
                     >
-                      <span
+                      <p className="text-[11px] font-semibold mb-1" style={{ color: "var(--accent-hi)", fontFamily: "var(--font-mono)" }}>
+                        Not tracked yet — fetch from Wikipedia?
+                      </p>
+                      <p className="text-[10px] mb-2" style={{ color: "var(--text-muted)" }}>
+                        Pull revision history for &#8220;{searchTitle.trim()}&#8221; and start tracking it live.
+                      </p>
+                      <button
+                        id="fetch-from-wikipedia-btn"
+                        onClick={() => {
+                          handleOnDemandFetch(searchTitle.trim());
+                        }}
+                        className="text-[10px] font-semibold px-3 py-1.5 rounded cursor-pointer transition-opacity hover:opacity-80"
                         style={{
-                          color: level === "critical" ? "var(--color-critical)" : level === "elevated" ? "var(--color-elevated)" : "var(--color-normal)",
-                          background: level === "critical" ? "rgba(239,68,68,0.08)" : level === "elevated" ? "rgba(249,115,22,0.08)" : "rgba(34,197,94,0.07)",
+                          background: "var(--accent)",
+                          color: "#fff",
+                          fontFamily: "var(--font-mono)",
                         }}
                       >
-                        {score.toFixed(2)}
-                      </span>
-                    </span>
-                  </button>
-                );
-              })
-            )}
-
-            {/* Load 100 More Button */}
-            {pages.length > 0 && !filterInputValue && (() => {
-              const cap = bufferInfo ? bufferInfo.cap : 1000;
-              const totalTracked = bufferInfo ? bufferInfo.total_tracked : 0;
-              const currentRendered = pages.length;
-              const canPageForward = currentRendered < totalTracked && currentRendered < cap;
-              const canFetchNew = currentRendered >= totalTracked && totalTracked < cap;
-              const isCapReached = !canPageForward && !canFetchNew;
-
-              return (
-                <div className="p-4 border-t border-[var(--border-muted)] bg-[var(--bg-base)] flex flex-col gap-2">
-                  {loadMoreMessage && (
-                    <div className="text-[10px] text-[var(--text-subtle)] flex items-center gap-2 mb-1 animate-pulse" style={{ fontFamily: "var(--font-mono)" }}>
-                      <span className="w-1.5 h-1.5 rounded-full bg-[var(--accent)] shrink-0" />
-                      {loadMoreMessage}
+                        Fetch &#8220;{searchTitle.trim().length > 22 ? searchTitle.trim().substring(0, 20) + "…" : searchTitle.trim()}&#8221; from Wikipedia
+                      </button>
                     </div>
                   )}
-                  <button
+                </div>
+              ) : (
+                filteredPages.map((p) => {
+                  const isSelected = p.id === selectedId;
+                  const score = p.anomaly_score || 0;
+                  const level = getLevel(score);
+                  const meta = LEVEL_META[level];
+
+                  return (
+                    <button
+                      key={p.id}
+                      id={`article-${p.id}`}
+                      onClick={() => setSelectedId(p.id)}
+                      className={`w-full text-left flex items-center gap-3 px-4 py-3 cursor-pointer transition-colors duration-150 ${
+                        isSelected ? "" : "hover:bg-[var(--bg-hover)]/40"
+                      }`}
+                      style={{
+                        borderBottom: "1px solid var(--border-muted)",
+                        background: isSelected ? "var(--bg-hover)" : "transparent",
+                      }}
+                    >
+                      <span
+                        className="w-2 h-2 rounded-full shrink-0"
+                        style={{ background: meta.dot }}
+                      />
+                      <div className="flex-1 min-w-0">
+                        <p
+                          className={`text-xs truncate ${isSelected ? "font-semibold text-[var(--text-primary)]" : "text-[var(--text-body)]"}`}
+                        >
+                          {p.title}
+                        </p>
+                        <p className="text-[9px] uppercase tracking-wider mt-0.5 text-[var(--text-subtle)] font-mono">
+                          {meta.label}
+                        </p>
+                      </div>
+                      <span className="shrink-0 flex items-center gap-1">
+                        <span
+                          className={`text-[10px] font-bold font-mono px-2 py-0.5 rounded border`}
+                          style={{
+                            minWidth: "36px",
+                            textAlign: "center",
+                            color: level === "critical" ? "var(--color-critical)" : level === "elevated" ? "var(--color-elevated)" : "var(--color-normal)",
+                            background: level === "critical" ? "rgba(239,68,68,0.08)" : level === "elevated" ? "rgba(249,115,22,0.08)" : "rgba(34,197,94,0.07)",
+                          }}
+                        >
+                          {score.toFixed(2)}
+                        </span>
+                      </span>
+                    </button>
+                  );
+                })
+              )}
+
+              {/* Load 100 More Button */}
+              {pages.length > 0 && !searchTitle && (() => {
+                const cap = bufferInfo ? bufferInfo.cap : 1000;
+                const totalTracked = bufferInfo ? bufferInfo.total_tracked : 0;
+                const currentRendered = pages.length;
+                const canPageForward = currentRendered < totalTracked && currentRendered < cap;
+                const canFetchNew = currentRendered >= totalTracked && totalTracked < cap;
+                const isCapReached = !canPageForward && !canFetchNew;
+
+                return (
+                  <div className="p-4 border-t border-[var(--border-muted)] bg-[var(--bg-base)] flex flex-col gap-2">
+                    {loadMoreMessage && (
+                      <div className="text-[10px] text-[var(--text-subtle)] flex items-center gap-2 mb-1 animate-pulse" style={{ fontFamily: "var(--font-mono)" }}>
+                        <span className="w-1.5 h-1.5 rounded-full bg-[var(--accent)] shrink-0" />
+                        {loadMoreMessage}
+                      </div>
+                    )}
+                    <button
                     onClick={handleLoadMore}
                     disabled={loadingLoadMore || isCapReached}
                     className="w-full py-2.5 px-4 rounded text-[10px] font-semibold uppercase tracking-wider cursor-pointer transition-all duration-150 flex items-center justify-center gap-2 border"
@@ -1747,7 +1722,38 @@ export default function Dashboard() {
               );
             })()}
           </div>
-        </section>
+
+          {/* Scroll Top Button */}
+          <button
+            type="button"
+            onClick={scrollToTop}
+            className="absolute top-2 right-4 p-1.5 rounded-full border shadow-md transition-all duration-200 opacity-0 group-hover/sidebar-scroll:opacity-100 hover:scale-105 cursor-pointer z-10"
+            style={{
+              background: "var(--bg-card)",
+              borderColor: "var(--border)",
+              color: "var(--accent-hi)",
+            }}
+            title="Scroll to top"
+          >
+            <ChevronUp className="w-4 h-4" />
+          </button>
+
+          {/* Scroll Bottom Button */}
+          <button
+            type="button"
+            onClick={scrollToBottom}
+            className="absolute bottom-2 right-4 p-1.5 rounded-full border shadow-md transition-all duration-200 opacity-0 group-hover/sidebar-scroll:opacity-100 hover:scale-105 cursor-pointer z-10"
+            style={{
+              background: "var(--bg-card)",
+              borderColor: "var(--border)",
+              color: "var(--accent-hi)",
+            }}
+            title="Scroll to bottom"
+          >
+            <ChevronDown className="w-4 h-4" />
+          </button>
+        </div>
+      </section>
 
         {/* ── COL 2: ARTICLE DETAIL ──────────────────────────────────────────── */}
         <main

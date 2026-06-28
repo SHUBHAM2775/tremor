@@ -265,3 +265,96 @@ body {
     transition-duration: 0.01ms !important;
   }
 }
+
+/* ── Seismograph Pointer Custom Cursor ── */
+html.custom-cursor-active,
+html.custom-cursor-active * {
+  cursor: none !important;
+}
+
+html.custom-cursor-active input,
+html.custom-cursor-active textarea,
+html.custom-cursor-active select,
+html.custom-cursor-active [contenteditable] {
+  cursor: text !important;
+}
+
+/* Caret color for inputs in the theme's crimson accent */
+input, textarea {
+  caret-color: var(--accent);
+}
+
+.seismograph-cursor {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 24px;
+  height: 24px;
+  /* Top-left tip of standard arrow is hotspot at (0,0). No margins needed. */
+  margin-top: 0;
+  margin-left: 0;
+  pointer-events: none;
+  z-index: 99999;
+  transform: translate3d(-100px, -100px, 0);
+  transition: opacity 0.15s ease-out;
+  opacity: 0;
+  overflow: visible;
+}
+
+.seismograph-cursor.visible {
+  opacity: 1;
+}
+
+.seismograph-cursor.cursor-text {
+  opacity: 0 !important;
+}
+
+.seismograph-cursor .cursor-glow {
+  position: absolute;
+  top: -16px;
+  left: -16px;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(225, 29, 72, 0.4) 0%, rgba(225, 29, 72, 0) 70%);
+  opacity: 0;
+  transition: opacity 0.2s ease, transform 0.2s ease;
+  transform: scale(0.5);
+  transform-origin: center;
+}
+
+/* Hover State - Show subtle background glow */
+.seismograph-cursor.cursor-hover .cursor-glow {
+  opacity: 1;
+  transform: scale(1);
+}
+
+/* Hover State - Tip of the arrow brightens slightly */
+.seismograph-cursor.cursor-hover .cursor-arrow-path {
+  fill: var(--accent-hi);
+  filter: drop-shadow(0px 0px 1.5px var(--accent-hi));
+}
+
+/* Active State - Click recoil tap scale animation anchored to the tip (0,0) */
+.seismograph-cursor svg {
+  transform-origin: 0 0;
+  transition: transform 0.1s cubic-bezier(0.1, 0.8, 0.3, 1);
+}
+
+.seismograph-cursor.cursor-active svg {
+  transform: scale(0.85);
+}
+
+/* Active State - Click recoil color shift */
+.seismograph-cursor.cursor-active .cursor-arrow-path {
+  fill: var(--accent-hi);
+}
+
+/* Reduced Motion Compliance */
+@media (prefers-reduced-motion: reduce) {
+  .seismograph-cursor .cursor-glow,
+  .seismograph-cursor svg {
+    transition: none !important;
+    animation: none !important;
+  }
+}

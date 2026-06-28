@@ -59,9 +59,21 @@ processed_counter = 0
 matched_counter = 0
 buffered_counter = 0
 
+# Rolling untracked activity state
+untracked_activity = {}  # title -> {"edits": [ts, ts, ...], "reverts": [ts, ts, ...]}
+last_cleanup_time = time.time()
+last_summary_time = time.time()
+
+scanned_edits_count = 0
+scanned_reverts_count = 0
+flagged_candidates_count = 0
+
 
 def handle_event(db, event: dict):
     global processed_counter, matched_counter, buffered_counter
+    global scanned_edits_count, scanned_reverts_count, flagged_candidates_count
+    global last_cleanup_time, last_summary_time
+
     if event.get("type") != "edit":
         return
     if event.get("wiki") != TARGET_WIKI:
@@ -81,16 +93,20 @@ def handle_event(db, event: dict):
     if not title or not rev_id:
         return
 
-    # Deduplicate: skip if this revision is already recorded
-    existing = db.query(Revision).filter_by(revision_id=rev_id).first()
-    if existing:
+    # Check if the page is currently tracked in the database
+    try:
+        page = db.query(Page).filter_by(title=title).first()
+    except Exception as e:
+        safe_log(f"[STREAM] Database query error: {e!r}")
         return
 
-    try:
-        # Only ingest revisions for pages already tracked in the database
-        page = db.query(Page).filter_by(title=title).first()
-        if page:
-            matched_counter += 1
+    if page:
+        # Check if this revision is already recorded
+        try:
+            existing = db.query(Revision).filter_by(revision_id=rev_id).first()
+            if existing:
+                return
+
             comment = event.get("comment", "")
             tags    = event.get("tags", [])
             is_revert = is_revert_edit(comment, tags)
@@ -110,29 +126,94 @@ def handle_event(db, event: dict):
             )
             db.add(revision)
             db.commit()
+            matched_counter += 1
 
             safe_log(
                 f"[EDIT] {title[:60]} | editor={event.get('user', '')[:20]}"
                 f" | diff={revision.byte_change}"
             )
-        else:
-            # If the page is not in the database, buffer it as a candidate title
-            if is_redis_available():
-                added = push_candidate_to_buffer(title)
-                if added:
-                    buffered_counter += 1
-                    safe_log(f"[BUFFER] Buffered candidate title: '{title}'")
+        except Exception as exc:
+            safe_log(f"[STREAM] Failed to persist event for tracked page '{title}' (rev {rev_id}): {exc!r}")
+            try:
+                db.rollback()
+            except Exception:
+                pass
+        finally:
+            # Evict memory/cache to prevent SQLAlchemy Session bloat
+            db.expire_all()
+    else:
+        # Untracked page: lightweight signal detection in-memory
+        now_ts = time.time()
+        scanned_edits_count += 1
 
-    except Exception as exc:
-        # Do NOT silently swallow — log the failure so we can diagnose.
-        safe_log(f"[STREAM] Failed to persist event for '{title}' (rev {rev_id}): {exc!r}")
-        try:
-            db.rollback()
-        except Exception:
-            pass
-    finally:
-        # Evict memory/cache to prevent SQLAlchemy Session bloat
-        db.expire_all()
+        comment = event.get("comment", "")
+        tags    = event.get("tags", [])
+        is_revert = is_revert_edit(comment, tags)
+        if is_revert:
+            scanned_reverts_count += 1
+
+        if title not in untracked_activity:
+            untracked_activity[title] = {"edits": [], "reverts": []}
+
+        # Track timestamp
+        untracked_activity[title]["edits"].append(now_ts)
+        if is_revert:
+            untracked_activity[title]["reverts"].append(now_ts)
+
+        # Filter out timestamps older than 5 minutes (300 seconds)
+        cutoff = now_ts - 300
+        untracked_activity[title]["edits"] = [t for t in untracked_activity[title]["edits"] if t >= cutoff]
+        untracked_activity[title]["reverts"] = [t for t in untracked_activity[title]["reverts"] if t >= cutoff]
+
+        # Check thresholds: e.g. 4 edits OR 2 reverts in 5 minutes
+        edit_cnt = len(untracked_activity[title]["edits"])
+        revert_cnt = len(untracked_activity[title]["reverts"])
+
+        if edit_cnt >= 4 or revert_cnt >= 2:
+            # Promote to candidate with elevated priority (LPUSH to head)
+            try:
+                if is_redis_available():
+                    # We pass elevated=True so it LPUSHes to the buffer
+                    added = push_candidate_to_buffer(title, elevated=True)
+                    if added:
+                        buffered_counter += 1
+                        flagged_candidates_count += 1
+                        safe_log(f"[BUFFER] Flagged high-conflict candidate: '{title}' (edits={edit_cnt}, reverts={revert_cnt})")
+            except Exception as e:
+                safe_log(f"[STREAM] Failed to buffer candidate: {e!r}")
+            # Clear from active tracking to avoid multiple triggers in quick succession
+            if title in untracked_activity:
+                del untracked_activity[title]
+
+    # Periodic cleanup and logging (every 60 seconds)
+    now_ts = time.time()
+    if now_ts - last_summary_time >= 60:
+        # Print summary log
+        safe_log(
+            f"[STREAM] Periodic Summary: Scanned {scanned_edits_count} edits "
+            f"({scanned_reverts_count} reverts) across {len(untracked_activity)} active untracked pages. "
+            f"Flagged {flagged_candidates_count} new candidates."
+        )
+        # Reset periodic counters
+        scanned_edits_count = 0
+        scanned_reverts_count = 0
+        flagged_candidates_count = 0
+        last_summary_time = now_ts
+
+    if now_ts - last_cleanup_time >= 120:
+        # Perform in-memory cleanup of stale entries
+        cutoff = now_ts - 300
+        to_delete = []
+        for t, act in list(untracked_activity.items()):
+            act["edits"] = [x for x in act["edits"] if x >= cutoff]
+            act["reverts"] = [x for x in act["reverts"] if x >= cutoff]
+            if not act["edits"] and not act["reverts"]:
+                to_delete.append(t)
+        for t in to_delete:
+            if t in untracked_activity:
+                del untracked_activity[t]
+        last_cleanup_time = now_ts
+
 
 
 def run_scoring_loop():
