@@ -95,6 +95,14 @@ def wikipedia_api_request(url, params, headers, timeout=15, max_retries=5, initi
     raise requests.exceptions.RequestException("Max retries exceeded")
 
 def poll_changes():
+    start_run_time = time.time()
+    print(f"[TIMING] Starting polling run at {datetime.now(timezone.utc).isoformat()}")
+
+    def log_duration(stage_name, start_time):
+        duration = time.time() - start_time
+        print(f"[TIMING] {stage_name} took {duration:.2f} seconds.")
+        return time.time()
+
     db = SessionLocal()
     
     # Check Redis availability and get client
@@ -107,7 +115,9 @@ def poll_changes():
             pass
 
     now = datetime.now(timezone.utc)
+    t_start = time.time()
     start_ts = get_last_poll_timestamp(db, redis_client)
+    t_start = log_duration("Retrieving last poll timestamp", t_start)
     
     # Defensive limit: bound the maximum catch-up window per run to 6 hours.
     # If the gap since the last checkpoint exceeds this threshold, we log a warning
@@ -125,8 +135,10 @@ def poll_changes():
     print(f"Polling Wikipedia recent changes: {start_iso} to {end_iso} (current UTC: {now.strftime('%Y-%m-%dT%H:%M:%SZ')})")
 
     # Load all tracked page titles into a set for fast lookup
+    t_load = time.time()
     tracked_titles = {p.title for p in db.query(Page.title).all()}
     print(f"Loaded {len(tracked_titles)} tracked pages from the database.")
+    t_load = log_duration("Loading tracked pages", t_load)
 
     params = {
         "action": "query",
@@ -143,6 +155,7 @@ def poll_changes():
     revisions_added_count = 0
     updated_pages = set()
     buffered_candidates_count = 0
+    untracked_activity = {}
 
     has_more = True
     rccontinue = None
@@ -161,6 +174,7 @@ def poll_changes():
             print("Proactive rate-limit avoidance: sleeping for 1.5 seconds before next request...")
             time.sleep(1.5)
 
+        t_batch_start = time.time()
         print(f"Fetching batch {batch_count + 1}...")
         try:
             data = wikipedia_api_request(API_URL, params=params, headers=HEADERS, timeout=15)
@@ -168,6 +182,7 @@ def poll_changes():
             print(f"ERROR: Failed to connect to Wikipedia API: {e!r}")
             # Exit loop but retain graceful behavior (saving checkpoint of successfully committed batches)
             break
+        t_batch_fetch = log_duration(f"Fetching batch {batch_count + 1}", t_batch_start)
 
         query = data.get("query", {})
         recentchanges = query.get("recentchanges", [])
@@ -188,6 +203,7 @@ def poll_changes():
         batch_revisions_added = 0
         batch_updated_pages = set()
 
+        t_process_start = time.time()
         for change in recentchanges:
             if change.get("type") != "edit":
                 continue
@@ -242,20 +258,29 @@ def poll_changes():
                     batch_updated_pages.add(page)
                     print(f" [INGEST] '{title}' | Rev {rev_id} | Revert={is_revert} | Bot={is_bot}")
             else:
-                # Buffer untracked popular changes as candidates
-                if redis_client:
-                    added = push_candidate_to_buffer(title)
-                    if added:
-                        buffered_candidates_count += 1
+                # Track untracked changes in memory first to identify high-conflict pages
+                comment = change.get("comment", "")
+                tags = change.get("tags", [])
+                is_revert = is_revert_edit(comment, tags)
+                
+                if title not in untracked_activity:
+                    untracked_activity[title] = {"edits": 0, "reverts": 0}
+                untracked_activity[title]["edits"] += 1
+                if is_revert:
+                    untracked_activity[title]["reverts"] += 1
+
+        t_process = log_duration(f"Processing revisions for batch {batch_count}", t_process_start)
 
         # Commit batch changes and calculate anomaly scores incrementally
         if batch_revisions_added > 0:
             try:
+                t_commit_start = time.time()
                 db.commit()
-                print(f"Batch {batch_count}: Persisted {batch_revisions_added} new revisions.")
+                t_commit_start = log_duration(f"Committing {batch_revisions_added} new revisions for batch {batch_count}", t_commit_start)
 
                 # Trigger anomaly scoring only for updated pages in this batch
                 print(f"Batch {batch_count}: Recalculating anomaly scores for {len(batch_updated_pages)} updated pages...")
+                t_score_start = time.time()
                 for page in batch_updated_pages:
                     score = compute_page_anomaly_score(db, page)
                     page.anomaly_score = score
@@ -264,7 +289,7 @@ def poll_changes():
                     print(f" [SCORE] '{page.title}' updated to {score}")
                 
                 db.commit()
-                print(f"Batch {batch_count}: Anomaly scores updated successfully.")
+                t_score_start = log_duration(f"Recalculating and committing anomaly scores for batch {batch_count}", t_score_start)
 
                 # Invalidate cache
                 try:
@@ -283,7 +308,9 @@ def poll_changes():
 
         # Save Redis checkpoint incrementally after each successfully completed batch
         if redis_client and last_processed_change_ts:
+            t_checkpoint_start = time.time()
             save_last_poll_timestamp(redis_client, last_processed_change_ts)
+            log_duration(f"Saving incremental checkpoint to Redis", t_checkpoint_start)
 
         # Check for paginated continue
         if "continue" in data:
@@ -299,6 +326,21 @@ def poll_changes():
                   f"{last_processed_change_ts.isoformat() if last_processed_change_ts else 'N/A'}")
             break
 
+    # Buffer untracked high-conflict pages as candidates in Redis
+    if redis_client and untracked_activity:
+        t_buffer_start = time.time()
+        print("Checking for high-conflict untracked candidates to buffer...")
+        candidates_checked = 0
+        for title, counts in untracked_activity.items():
+            if counts["edits"] >= 4 or counts["reverts"] >= 2:
+                candidates_checked += 1
+                added = push_candidate_to_buffer(title)
+                if added:
+                    buffered_candidates_count += 1
+                    print(f" [BUFFER] Flagged high-conflict candidate: '{title}' (edits={counts['edits']}, reverts={counts['reverts']})")
+        print(f"Finished candidate buffering. Pushed {buffered_candidates_count} candidates out of {candidates_checked} eligible high-conflict pages.")
+        log_duration("Buffering candidates in Redis", t_buffer_start)
+
     # If the run successfully queried the entire window, advance checkpoint to the window end
     if run_fully_completed:
         save_last_poll_timestamp(redis_client, current_window_end)
@@ -309,6 +351,7 @@ def poll_changes():
     
     print(f"Polling run completed. Revisions added: {revisions_added_count}, Candidates buffered: {buffered_candidates_count}")
     db.close()
+    log_duration("Entire polling run", start_run_time)
 
 if __name__ == "__main__":
     poll_changes()

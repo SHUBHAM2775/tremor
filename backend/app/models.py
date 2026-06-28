@@ -35,9 +35,9 @@ class Revision(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     revision_id = Column(BigInteger, unique=True, index=True, nullable=False)
-    page_id = Column(Integer, ForeignKey("pages.id"), nullable=False)
+    page_id = Column(Integer, ForeignKey("pages.id"), index=True, nullable=False)
     editor = Column(String, nullable=False)
-    timestamp = Column(DateTime(timezone=True), nullable=False)
+    timestamp = Column(DateTime(timezone=True), index=True, nullable=False)
     byte_change = Column(Integer, nullable=False)
     comment = Column(String, nullable=False)
     is_revert = Column(Boolean, default=False, nullable=False)
