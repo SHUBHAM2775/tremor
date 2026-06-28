@@ -180,19 +180,28 @@ def cache_delete(key: str) -> None:
 def invalidate_page_caches() -> None:
     """
     Invalidate response caches affected by score updates.
-    Executed after scores are recalculated. Supports dynamic limit keys.
+    Executed after scores are recalculated. Uses explicit key deletion
+    instead of expensive 'KEYS' scans to conserve Redis commands.
     """
     if not _ensure_connected() or _redis_client is None:
         return
     try:
-        # Find and delete all pages list keys
-        pages_keys = _redis_client.keys("tremor:pages_list:*")
-        if pages_keys:
-            _redis_client.delete(*pages_keys)
-        # Find and delete all clusters list keys
-        clusters_keys = _redis_client.keys("tremor:clusters_list:*")
-        if clusters_keys:
-            _redis_client.delete(*clusters_keys)
+        # Specific known cache keys to avoid expensive wildcard KEYS scanning
+        keys_to_delete = [
+            "tremor:pages_list:250",
+            "tremor:pages_list:300",
+            "tremor:pages_list:400",
+            "tremor:pages_list:500",
+            "tremor:pages_list:600",
+            "tremor:pages_list:700",
+            "tremor:pages_list:800",
+            "tremor:pages_list:900",
+            "tremor:pages_list:1000",
+            "tremor:clusters_list:200",
+            "tremor:clusters_list:1000"
+        ]
+        _redis_client.delete(*keys_to_delete)
+        logger.info("[Cache] Invalidated specific page and cluster caches.")
     except Exception as exc:
         logger.debug(f"[Cache] invalidate_page_caches failed: {exc!r}")
 

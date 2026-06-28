@@ -219,10 +219,10 @@ export default function AboutPage() {
 
             <div className="space-y-2 p-4 rounded card border-[var(--border-muted)]">
               <div className="flex items-center gap-1.5 text-[var(--text-primary)] font-bold mb-1">
-                <Shield className="w-4 h-4 text-[var(--accent-hi)]" /> Buffer Cap & Eviction
+                <Shield className="w-4 h-4 text-[var(--accent-hi)]" /> Capacity & Auto-Promotion
               </div>
               <p className="leading-relaxed text-[var(--text-body)]">
-                To protect databases, tracked articles are capped at 1,000. When new candidates are loaded from the Redis buffer, the lowest-conflict, least-checked pages are evicted, ensuring high-conflict articles stay tracked.
+                Tracked articles are capped at 8,000 to manage resource constraints. The firehose scanner monitors Wikipedia in real-time, automatically promoting high-conflict pages. If capacity is exceeded, lower-conflict, stale pages are batch-evicted.
               </p>
             </div>
 

@@ -34,3 +34,11 @@ jobs:
         working-directory: backend
         run: |
           python scripts/poll_recent_changes.py
+
+      - name: Drain RQ Queue
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          REDIS_URL: ${{ secrets.REDIS_URL }}
+        working-directory: backend
+        run: |
+          python scripts/run_simple_worker.py

@@ -253,7 +253,8 @@ def get_buffer_info(db: Session = Depends(get_db)):
     return {
         "buffer_size": get_candidate_buffer_size() if is_redis_available() else 0,
         "total_tracked": db.query(Page).count(),
-        "cap": 1000,
+        "cap": 8000,
+        "conflict_count": db.query(Page).filter(Page.anomaly_score > 1.5).count(),
         "redis_available": is_redis_available()
     }
 
@@ -262,17 +263,17 @@ def get_buffer_info(db: Session = Depends(get_db)):
 def load_more_articles(background_tasks: BackgroundTasks, db: Session = Depends(get_db)):
     """
     Triggers ingestion of up to 100 new articles.
-    Checks and enforces the 1,000 tracked articles cap.
+    Checks and enforces the 8,000 tracked articles cap.
     Pulls from the Redis candidate buffer, falling back to a direct live
     Wikipedia fetch if Redis is down or empty.
     """
     current_count = db.query(Page).count()
-    if current_count >= 1000:
-        raise HTTPException(status_code=400, detail="Tracking cap reached (1,000 articles)")
+    if current_count >= 8000:
+        raise HTTPException(status_code=400, detail="Tracking cap reached (8,000 articles)")
 
-    batch_size = min(100, 1000 - current_count)
+    batch_size = min(100, 8000 - current_count)
     if batch_size <= 0:
-        raise HTTPException(status_code=400, detail="Tracking cap reached (1,000 articles)")
+        raise HTTPException(status_code=400, detail="Tracking cap reached (8,000 articles)")
 
     redis_ok = is_redis_available()
     titles = []

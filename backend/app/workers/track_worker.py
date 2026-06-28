@@ -22,6 +22,9 @@ from app.models import Page
 
 logger = logging.getLogger(__name__)
 
+TRACKED_CAP = 8000
+EVICTION_WATERMARK = 8100
+
 
 def evict_pages_to_make_room(db, count_needed: int):
     """
@@ -40,12 +43,12 @@ def evict_pages_to_make_room(db, count_needed: int):
             Page.anomaly_score.asc().nullsfirst(),
             Page.last_checked.asc().nullsfirst()
         )
+        .limit(count_needed)
         .all()
     )
     
     evicted_titles = []
-    to_delete = candidates[:count_needed]
-    for page in to_delete:
+    for page in candidates:
         evicted_titles.append(page.title)
         db.delete(page)
         
@@ -90,11 +93,12 @@ def run_track_job(title: str) -> dict:
         db.add(page)
         db.commit()
 
-        # Enforce cap (1,000 articles)
+        # Enforce cap (8,000 articles, with high watermark hysteresis at 8,100)
         current_count = db.query(Page).count()
-        if current_count > 1000:
-            logger.info(f"[Worker] Page count ({current_count}) exceeds 1000 cap. Evicting pages to make room...")
-            evict_pages_to_make_room(db, current_count - 1000)
+        if current_count > EVICTION_WATERMARK:
+            excess = current_count - TRACKED_CAP
+            logger.info(f"[Worker] Page count ({current_count}) exceeds watermark ({EVICTION_WATERMARK}). Evicting {excess} pages to return to cap ({TRACKED_CAP})...")
+            evict_pages_to_make_room(db, excess)
 
         # Invalidate response caches so the next API call sees fresh data
         try:
@@ -134,11 +138,11 @@ def run_load_more_batch_job(titles: list[str]) -> dict:
     try:
         logger.info(f"[Worker] Starting batch track job for {len(titles)} pages")
         
-        # Enforce cap & eviction
+        # Enforce cap & eviction (8,000 cap limit)
         current_count = db.query(Page).count()
-        excess = (current_count + len(titles)) - 1000
+        excess = (current_count + len(titles)) - TRACKED_CAP
         if excess > 0:
-            logger.info(f"[Worker] Batch size would exceed 1000 cap. Evicting {excess} pages first...")
+            logger.info(f"[Worker] Batch size would exceed {TRACKED_CAP} cap. Evicting {excess} pages first...")
             evict_pages_to_make_room(db, excess)
             
         success_count = 0

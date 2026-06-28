@@ -170,17 +170,27 @@ def handle_event(db, event: dict):
         revert_cnt = len(untracked_activity[title]["reverts"])
 
         if edit_cnt >= 4 or revert_cnt >= 2:
-            # Promote to candidate with elevated priority (LPUSH to head)
+            # Promote to tracked page automatically
             try:
+                redis_queued = False
                 if is_redis_available():
-                    # We pass elevated=True so it LPUSHes to the buffer
-                    added = push_candidate_to_buffer(title, elevated=True)
-                    if added:
+                    from app.queue import enqueue_track_job
+                    job_id = enqueue_track_job(title)
+                    if job_id:
+                        redis_queued = True
                         buffered_counter += 1
                         flagged_candidates_count += 1
-                        safe_log(f"[BUFFER] Flagged high-conflict candidate: '{title}' (edits={edit_cnt}, reverts={revert_cnt})")
+                        safe_log(f"[AUTO-PROMOTE] Enqueued RQ track job for '{title}' (edits={edit_cnt}, reverts={revert_cnt})")
+                
+                if not redis_queued:
+                    # Fallback to local background thread
+                    from app.workers.track_worker import run_track_job
+                    threading.Thread(target=run_track_job, args=(title,), daemon=True).start()
+                    buffered_counter += 1
+                    flagged_candidates_count += 1
+                    safe_log(f"[AUTO-PROMOTE] Started local background thread to track '{title}' (edits={edit_cnt}, reverts={revert_cnt})")
             except Exception as e:
-                safe_log(f"[STREAM] Failed to buffer candidate: {e!r}")
+                safe_log(f"[STREAM] Failed to auto-promote candidate '{title}': {e!r}")
             # Clear from active tracking to avoid multiple triggers in quick succession
             if title in untracked_activity:
                 del untracked_activity[title]

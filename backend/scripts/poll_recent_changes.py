@@ -1,7 +1,7 @@
 import os
 import sys
 import time
-import requests
+import requests  # type: ignore
 from datetime import datetime, timezone, timedelta
 from sqlalchemy import func
 
@@ -18,6 +18,12 @@ API_URL = "https://en.wikipedia.org/w/api.php"
 HEADERS = {
     "User-Agent": "TremorPollBot/1.0 (https://github.com/username/tremor; contact: dev@example.com)"
 }
+
+def safe_print(msg: str):
+    try:
+        print(msg)
+    except UnicodeEncodeError:
+        print(msg.encode("ascii", "replace").decode("ascii"))
 
 def get_last_poll_timestamp(db, redis_client) -> datetime:
     """Determine the start timestamp for recent changes polling."""
@@ -283,8 +289,8 @@ def poll_changes():
                 t_score_start = time.time()
                 for page in batch_updated_pages:
                     score = compute_page_anomaly_score(db, page)
-                    page.anomaly_score = score
-                    page.last_checked = now
+                    page.anomaly_score = score  # type: ignore
+                    page.last_checked = now  # type: ignore
                     db.add(page)
                     print(f" [SCORE] '{page.title}' updated to {score}")
                 
@@ -326,20 +332,37 @@ def poll_changes():
                   f"{last_processed_change_ts.isoformat() if last_processed_change_ts else 'N/A'}")
             break
 
-    # Buffer untracked high-conflict pages as candidates in Redis
-    if redis_client and untracked_activity:
+    # Auto-promote high-conflict untracked pages as candidates
+    if untracked_activity:
         t_buffer_start = time.time()
-        print("Checking for high-conflict untracked candidates to buffer...")
+        print("Checking for high-conflict untracked candidates to promote...")
         candidates_checked = 0
         for title, counts in untracked_activity.items():
             if counts["edits"] >= 4 or counts["reverts"] >= 2:
                 candidates_checked += 1
-                added = push_candidate_to_buffer(title)
-                if added:
-                    buffered_candidates_count += 1
-                    print(f" [BUFFER] Flagged high-conflict candidate: '{title}' (edits={counts['edits']}, reverts={counts['reverts']})")
-        print(f"Finished candidate buffering. Pushed {buffered_candidates_count} candidates out of {candidates_checked} eligible high-conflict pages.")
-        log_duration("Buffering candidates in Redis", t_buffer_start)
+                redis_queued = False
+                if redis_client:
+                    try:
+                        from app.queue import enqueue_track_job
+                        job_id = enqueue_track_job(title)
+                        if job_id:
+                            redis_queued = True
+                            buffered_candidates_count += 1
+                            safe_print(f" [AUTO-PROMOTE] Enqueued RQ track job for '{title}' (edits={counts['edits']}, reverts={counts['reverts']})")
+                    except Exception as e:
+                        safe_print(f"ERROR: Failed to enqueue track job in poll script: {e!r}")
+                
+                if not redis_queued:
+                    try:
+                        import threading
+                        from app.workers.track_worker import run_track_job
+                        threading.Thread(target=run_track_job, args=(title,), daemon=True).start()
+                        buffered_candidates_count += 1
+                        safe_print(f" [AUTO-PROMOTE] Started local background thread to track '{title}' (edits={counts['edits']}, reverts={counts['reverts']})")
+                    except Exception as e:
+                        safe_print(f"ERROR: Failed to start auto-promotion thread in poll script: {e!r}")
+        print(f"Finished candidate promotion. Promoted {buffered_candidates_count} candidates out of {candidates_checked} eligible high-conflict pages.")
+        log_duration("Promoting candidates", t_buffer_start)
 
     # If the run successfully queried the entire window, advance checkpoint to the window end
     if run_fully_completed:
@@ -350,6 +373,17 @@ def poll_changes():
         print("No changes were processed, and query did not complete successfully. Checkpoint not updated.")
     
     print(f"Polling run completed. Revisions added: {revisions_added_count}, Candidates buffered: {buffered_candidates_count}")
+    
+    # Log approximate Redis command usage for budget tracking
+    # 1 (get timestamp) + 1 (save timestamp if completed) + 1 (cache invalidation if edits added) + 6 per enqueued candidate
+    approx_commands = 1  # get timestamp
+    if run_fully_completed or last_processed_change_ts:
+        approx_commands += 1  # save timestamp
+    if revisions_added_count > 0:
+        approx_commands += 1  # cache invalidation
+    approx_commands += (6 * buffered_candidates_count)  # enqueues
+    print(f"[REDIS BUDGET] This polling run consumed approximately {approx_commands} Redis commands.")
+    
     db.close()
     log_duration("Entire polling run", start_run_time)
 
