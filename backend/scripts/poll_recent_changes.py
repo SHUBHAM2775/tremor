@@ -269,11 +269,14 @@ def poll_changes():
                 tags = change.get("tags", [])
                 is_revert = is_revert_edit(comment, tags)
                 
+                dt = last_processed_change_ts or (datetime.fromisoformat(ts_str.replace("Z", "+00:00")) if ts_str else datetime.now(timezone.utc))
+                
                 if title not in untracked_activity:
-                    untracked_activity[title] = {"edits": 0, "reverts": 0}
-                untracked_activity[title]["edits"] += 1
-                if is_revert:
-                    untracked_activity[title]["reverts"] += 1
+                    untracked_activity[title] = []
+                untracked_activity[title].append({
+                    "timestamp": dt,
+                    "is_revert": is_revert
+                })
 
         t_process = log_duration(f"Processing revisions for batch {batch_count}", t_process_start)
 
@@ -337,8 +340,31 @@ def poll_changes():
         t_buffer_start = time.time()
         print("Checking for high-conflict untracked candidates to promote...")
         candidates_checked = 0
-        for title, counts in untracked_activity.items():
-            if counts["edits"] >= 4 or counts["reverts"] >= 2:
+        for title, activity_list in untracked_activity.items():
+            # Check if there's any 5-minute window with >= 4 edits or >= 2 reverts
+            activity_list.sort(key=lambda x: x["timestamp"])
+            is_high_conflict = False
+            matching_edits = 0
+            matching_reverts = 0
+            
+            for i, act in enumerate(activity_list):
+                window_start = act["timestamp"]
+                edits_in_window = 0
+                reverts_in_window = 0
+                for j in range(i, len(activity_list)):
+                    if activity_list[j]["timestamp"] - window_start <= timedelta(minutes=5):
+                        edits_in_window += 1
+                        if activity_list[j]["is_revert"]:
+                            reverts_in_window += 1
+                    else:
+                        break
+                if edits_in_window >= 4 or reverts_in_window >= 2:
+                    is_high_conflict = True
+                    matching_edits = edits_in_window
+                    matching_reverts = reverts_in_window
+                    break
+
+            if is_high_conflict:
                 candidates_checked += 1
                 redis_queued = False
                 if redis_client:
@@ -348,7 +374,7 @@ def poll_changes():
                         if job_id:
                             redis_queued = True
                             buffered_candidates_count += 1
-                            safe_print(f" [AUTO-PROMOTE] Enqueued RQ track job for '{title}' (edits={counts['edits']}, reverts={counts['reverts']})")
+                            safe_print(f" [AUTO-PROMOTE] Enqueued RQ track job for '{title}' (edits={matching_edits}, reverts={matching_reverts} in 5-min window)")
                     except Exception as e:
                         safe_print(f"ERROR: Failed to enqueue track job in poll script: {e!r}")
                 
@@ -358,7 +384,7 @@ def poll_changes():
                         from app.workers.track_worker import run_track_job
                         threading.Thread(target=run_track_job, args=(title,), daemon=True).start()
                         buffered_candidates_count += 1
-                        safe_print(f" [AUTO-PROMOTE] Started local background thread to track '{title}' (edits={counts['edits']}, reverts={counts['reverts']})")
+                        safe_print(f" [AUTO-PROMOTE] Started local background thread to track '{title}' (edits={matching_edits}, reverts={matching_reverts} in 5-min window)")
                     except Exception as e:
                         safe_print(f"ERROR: Failed to start auto-promotion thread in poll script: {e!r}")
         print(f"Finished candidate promotion. Promoted {buffered_candidates_count} candidates out of {candidates_checked} eligible high-conflict pages.")

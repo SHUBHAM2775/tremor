@@ -106,10 +106,31 @@ def enqueue_track_job(title: str) -> Optional[str]:
     if not _ensure_connected() or _rq_queue is None:
         return None
     try:
+        import hashlib
+        import rq as rq_lib  # type: ignore
+        
+        # Use a deterministic, URL-safe job ID based on MD5 of the page title
+        title_hash = hashlib.md5(title.encode("utf-8")).hexdigest()
+        job_id = f"track:{title_hash}"
+        
+        # Check if job is already queued, active, or deferred to prevent duplicates
+        try:
+            existing_job = rq_lib.job.Job.fetch(job_id, connection=_redis_client)
+            status = existing_job.get_status()
+            if status in ("queued", "started", "deferred"):
+                logger.info(f"[Queue] Job for '{title}' already exists with status '{status}' (ID: {job_id}). Skipping enqueue.")
+                return existing_job.id
+            else:
+                # Delete finished/failed/canceled job to avoid duplicate job ID collision on re-enqueue
+                existing_job.delete()
+        except Exception:
+            pass
+
         from app.workers.track_worker import run_track_job
         job = _rq_queue.enqueue(
             run_track_job,
             title,
+            job_id=job_id,
             job_timeout=120,    # max 2 min per fetch
             result_ttl=300,     # keep result for 5 min so frontend can poll
         )

@@ -126,15 +126,17 @@ def fetch_and_store_history(db, title: str, limit: int = 100) -> int:
     new_revisions_count = 0
 
     try:
+        # Batch query existing revision IDs to avoid N roundtrips
+        rev_ids = [rev_data.get("revid") for rev_data in revisions_list if rev_data.get("revid")]
+        existing_ids = set()
+        if rev_ids:
+            existing_rows = db.query(Revision.revision_id).filter(Revision.revision_id.in_(rev_ids)).all()
+            existing_ids = {r.revision_id for r in existing_rows}
+
         # The API returns revisions sorted from newest to oldest.
         for i, rev_data in enumerate(revisions_list):
             rev_id = rev_data.get("revid")
-            if not rev_id:
-                continue
-
-            # Deduplicate
-            existing = db.query(Revision).filter_by(revision_id=rev_id).first()
-            if existing:
+            if not rev_id or rev_id in existing_ids:
                 continue
 
             # Parse timestamp — MediaWiki format: "2026-06-22T12:34:56Z"

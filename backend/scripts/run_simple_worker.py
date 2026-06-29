@@ -1,5 +1,6 @@
 import os
 import sys
+import time
 from redis import Redis
 from rq import SimpleWorker
 
@@ -7,6 +8,29 @@ from rq import SimpleWorker
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from app.queue import REDIS_URL
+
+# Record script start time
+START_TIME = time.time()
+
+# Configurable timeout budget in minutes (defaults to matching GitHub action's 40m timeout)
+WORKER_TIMEOUT_MINUTES = float(os.getenv("WORKER_TIMEOUT_MINUTES", "40"))
+WORKER_SAFETY_MARGIN_MINUTES = float(os.getenv("WORKER_SAFETY_MARGIN_MINUTES", "5"))
+
+class BudgetAwareSimpleWorker(SimpleWorker):
+    """
+    Subclass of SimpleWorker that checks elapsed execution time before fetching
+    the next job. If the remaining time budget is insufficient, it exits cleanly.
+    """
+    def dequeue_job_and_maintain_ttl(self, timeout, max_idle_time=None):
+        elapsed = time.time() - START_TIME
+        budget = (WORKER_TIMEOUT_MINUTES - WORKER_SAFETY_MARGIN_MINUTES) * 60
+        if elapsed >= budget:
+            self.log.info(
+                f"[TIME BUDGET] Time budget exceeded ({elapsed:.1f}s >= {budget:.1f}s). "
+                "Stopping job consumption and shutting down worker cleanly."
+            )
+            return None
+        return super().dequeue_job_and_maintain_ttl(timeout, max_idle_time)
 
 def run_worker():
     print(f"Connecting to Redis at: {REDIS_URL}")
@@ -26,8 +50,8 @@ def run_worker():
         print(f"Error checking queue length: {e!r}. Proceeding to start worker anyway.")
         queue_len = 0
 
-    print("Starting SimpleWorker on queue: tremor_track...")
-    worker = SimpleWorker(['tremor_track'], connection=conn)
+    print("Starting BudgetAwareSimpleWorker on queue: tremor_track...")
+    worker = BudgetAwareSimpleWorker(['tremor_track'], connection=conn)
     worker.work(burst=True)
     print("SimpleWorker finished processing all jobs in burst mode.")
     
