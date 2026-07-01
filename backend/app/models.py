@@ -19,6 +19,7 @@ class Page(Base):
     x = Column(Float, default=0.0, nullable=True)
     y = Column(Float, default=0.0, nullable=True)
     last_checked = Column(DateTime(timezone=True), nullable=True)
+    summary = Column(String, nullable=True)
 
     # Establish a one-to-many relationship from Page to Revision
     revisions = relationship("Revision", back_populates="page", cascade="all, delete-orphan")

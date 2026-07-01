@@ -3,8 +3,70 @@ import { Info, Clock } from "lucide-react";
 
 // ─── Info tooltip ──────────────────────────────────────────────────────────────
 
-export function InfoTooltip({ text }: { text: string }) {
+interface InfoTooltipProps {
+  text: string;
+  position?: "top" | "bottom" | "left" | "right";
+}
+
+export function InfoTooltip({ text, position = "top" }: InfoTooltipProps) {
   const [show, setShow] = useState(false);
+
+  // Position-specific class and style mapping
+  const containerClasses = React.useMemo(() => {
+    const base = "absolute w-56 p-3 rounded-md z-50 pointer-events-none text-[11px] leading-relaxed transition-all duration-150";
+    if (position === "bottom") {
+      return `${base} top-full left-1/2 -translate-x-1/2 mt-2`;
+    }
+    if (position === "right") {
+      return `${base} left-full top-1/2 -translate-y-1/2 ml-2`;
+    }
+    if (position === "left") {
+      return `${base} right-full top-1/2 -translate-y-1/2 mr-2`;
+    }
+    return `${base} bottom-full left-1/2 -translate-x-1/2 mb-2`;
+  }, [position]);
+
+  const arrowStyle = React.useMemo(() => {
+    if (position === "bottom") {
+      return {
+        bottom: "100%",
+        left: "50%",
+        transform: "translateX(-50%)",
+        borderWidth: 5,
+        borderStyle: "solid",
+        borderColor: "transparent transparent var(--bg-hover) transparent",
+      };
+    }
+    if (position === "right") {
+      return {
+        right: "100%",
+        top: "50%",
+        transform: "translateY(-50%)",
+        borderWidth: 5,
+        borderStyle: "solid",
+        borderColor: "transparent var(--bg-hover) transparent transparent",
+      };
+    }
+    if (position === "left") {
+      return {
+        left: "100%",
+        top: "50%",
+        transform: "translateY(-50%)",
+        borderWidth: 5,
+        borderStyle: "solid",
+        borderColor: "transparent transparent transparent var(--bg-hover)",
+      };
+    }
+    return {
+      top: "100%",
+      left: "50%",
+      transform: "translateX(-50%)",
+      borderWidth: 5,
+      borderStyle: "solid",
+      borderColor: "var(--bg-hover) transparent transparent transparent",
+    };
+  }, [position]);
+
   return (
     <span className="relative inline-flex items-center ml-1 leading-none">
       <button
@@ -18,7 +80,7 @@ export function InfoTooltip({ text }: { text: string }) {
       </button>
       {show && (
         <div
-          className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-56 p-3 rounded-md z-50 pointer-events-none text-[11px] leading-relaxed"
+          className={containerClasses}
           style={{
             background: "var(--bg-hover)",
             border: "1px solid var(--border)",
@@ -28,12 +90,8 @@ export function InfoTooltip({ text }: { text: string }) {
         >
           {text}
           <div
-            className="absolute top-full left-1/2 -translate-x-1/2"
-            style={{
-              borderWidth: 5,
-              borderStyle: "solid",
-              borderColor: "var(--bg-hover) transparent transparent transparent",
-            }}
+            className="absolute"
+            style={arrowStyle}
           />
         </div>
       )}

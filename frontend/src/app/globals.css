@@ -357,4 +357,20 @@ input, textarea {
     transition: none !important;
     animation: none !important;
   }
+}/* ── First-time visit glowing about button animation */
+@keyframes about-glow {
+  0%, 100% {
+    box-shadow: 0 0 4px rgba(251, 113, 133, 0.2), inset 0 0 1px rgba(251, 113, 133, 0.1);
+    border-color: rgba(251, 113, 133, 0.45);
+  }
+  50% {
+    box-shadow: 0 0 12px rgba(251, 113, 133, 0.55), inset 0 0 3px rgba(251, 113, 133, 0.25);
+    border-color: var(--accent-hi);
+  }
+}
+
+.about-btn-glow:not(:hover) {
+  animation: about-glow 2.2s ease-in-out infinite;
+  color: var(--accent-hi) !important;
+  border-color: rgba(251, 113, 133, 0.6) !important;
 }

@@ -70,6 +70,15 @@ export default function Dashboard() {
   const [hoveredPage, setHoveredPage] = useState<any | null>(null);
   const [hoveredClusterId, setHoveredClusterId] = useState<number | null>(null);
 
+  const [isFirstVisit, setIsFirstVisit] = useState(false);
+
+  useEffect(() => {
+    const hasVisited = localStorage.getItem("tremor:has_visited");
+    if (!hasVisited) {
+      setIsFirstVisit(true);
+    }
+  }, []);
+
   // Set default selection when pages first load
   useEffect(() => {
     if (pages.length > 0 && selectedId === null) {
@@ -82,21 +91,37 @@ export default function Dashboard() {
     setLoadingDetail(true);
     setLoadingSummary(true);
     setRevisionsExpanded(false);
-    try {
-      const [pd, tl, sm] = await Promise.all([
-        safeFetchJson<PageDetail>(`${API_BASE}/api/pages/${id}`),
-        safeFetchJson<TimelinePoint[]>(`${API_BASE}/api/pages/${id}/timeline?window_days=3`),
-        safeFetchJson<{ summary: string }>(`${API_BASE}/api/pages/${id}/summary`),
-      ]);
-      setDetail(pd);
-      setTimeline(tl);
-      setSummary(sm.summary);
-    } catch (e) {
-      console.error("Failed to fetch page details:", e);
-    } finally {
+
+    // 1. Fetch details and timeline (very fast database queries)
+    const detailsPromise = safeFetchJson<PageDetail>(`${API_BASE}/api/pages/${id}`)
+      .then((pd) => {
+        setDetail(pd);
+      })
+      .catch((e) => console.error("Failed to fetch page details:", e));
+
+    const timelinePromise = safeFetchJson<TimelinePoint[]>(`${API_BASE}/api/pages/${id}/timeline?window_days=3`)
+      .then((tl) => {
+        setTimeline(tl);
+      })
+      .catch((e) => console.error("Failed to fetch page timeline:", e));
+
+    // Resolve details and timeline as fast as possible to make UI changes instant
+    Promise.all([detailsPromise, timelinePromise]).finally(() => {
       setLoadingDetail(false);
-      setLoadingSummary(false);
-    }
+    });
+
+    // 2. Fetch dispute summary in parallel but independently (might involve LLM computation)
+    safeFetchJson<{ summary: string }>(`${API_BASE}/api/pages/${id}/summary`)
+      .then((sm) => {
+        setSummary(sm.summary);
+      })
+      .catch((e) => {
+        console.error("Failed to fetch page summary:", e);
+        setSummary("Failed to load dispute summary.");
+      })
+      .finally(() => {
+        setLoadingSummary(false);
+      });
   }, []);
 
   useEffect(() => {
@@ -228,7 +253,13 @@ export default function Dashboard() {
 
             <Link
               href="/about"
-              className="text-xs px-3 py-1.5 rounded transition-all duration-100 font-semibold cursor-pointer no-underline"
+              onClick={() => {
+                localStorage.setItem("tremor:has_visited", "true");
+                setIsFirstVisit(false);
+              }}
+              className={`text-xs px-3 py-1.5 rounded transition-all duration-100 font-semibold cursor-pointer no-underline ${
+                isFirstVisit ? "about-btn-glow" : ""
+              }`}
               style={{
                 background: "var(--bg-card)",
                 border: "1px solid var(--border-muted)",

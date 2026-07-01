@@ -179,6 +179,9 @@ def fetch_and_store_history(db, title: str, limit: int = 100) -> int:
             db.add(revision)
             new_revisions_count += 1
 
+        if new_revisions_count > 0:
+            page.summary = None
+
         db.commit()
         print(f"Successfully added {new_revisions_count} new revisions to database.")
         return new_revisions_count

@@ -405,6 +405,9 @@ def get_page_summary(page_id: int, db: Session = Depends(get_db)):
     if not page:
         raise HTTPException(status_code=404, detail="Page not found")
 
+    if page.summary:
+        return {"summary": page.summary}
+
     revisions = (
         db.query(Revision)
           .filter_by(page_id=page_id)
@@ -413,6 +416,10 @@ def get_page_summary(page_id: int, db: Session = Depends(get_db)):
           .all()
     )
     summary = generate_dispute_summary(page, revisions)
+    
+    page.summary = summary
+    db.commit()
+    
     return {"summary": summary}
 
 

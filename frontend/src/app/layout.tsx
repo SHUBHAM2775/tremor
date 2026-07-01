@@ -26,12 +26,12 @@ const jetbrainsMono = JetBrains_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Tremor — Wikipedia Edit War Seismograph",
+  title: "Tremor",
   description:
     "Real-time detector for Wikipedia edit wars and content disputes. Monitor live anomaly scores, clusters, and revision patterns.",
   keywords: ["Wikipedia", "edit war", "anomaly detection", "real-time monitor", "content disputes"],
   openGraph: {
-    title: "Tremor — Wikipedia Edit War Seismograph",
+    title: "Tremor",
     description: "Real-time seismograph for Wikipedia pages in active edit conflicts.",
     type: "website",
   },

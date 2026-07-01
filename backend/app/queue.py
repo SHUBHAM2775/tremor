@@ -157,7 +157,7 @@ def get_job_status(job_id: str) -> dict:
         if status == "finished" and job.result is not None:
             result["result"] = job.result
         if status == "failed":
-            result["error"] = str(job.exc_info or "Unknown error")
+            result["error"] = job.exc_info or "Unknown error"
         return result
     except Exception as exc:
         logger.error(f"[Queue] get_job_status({job_id}) failed: {exc!r}")
@@ -269,7 +269,7 @@ def pop_candidates_from_buffer(count: int) -> list[str]:
     try:
         # Pop multiple items from the list using LPOP with count (Redis 6.2+)
         # Fallback to loop if count is not supported by the client/server
-        titles = []
+        titles: list[str] = []
         pipe = _redis_client.pipeline()
         for _ in range(count):
             pipe.lpop("tremor:candidate_buffer")

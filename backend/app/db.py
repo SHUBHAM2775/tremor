@@ -47,6 +47,21 @@ def get_db():
 def init_db():
     Base.metadata.create_all(bind=engine)
     print(f"Tables created at: {DATABASE_URL}")
+    
+    # Run automatic ALTER TABLE check only if the summary column doesn't exist yet.
+    # Checking column existence first avoids blocking table locks in PostgreSQL.
+    from sqlalchemy import inspect, text
+    try:
+        inspector = inspect(engine)
+        columns = [col["name"] for col in inspector.get_columns("pages")]
+        if "summary" not in columns:
+            with engine.begin() as conn:
+                conn.execute(text("ALTER TABLE pages ADD COLUMN summary TEXT NULL;"))
+                print("Successfully added 'summary' column to 'pages' table.")
+        else:
+            print("Database schema check: 'summary' column already exists.")
+    except Exception as e:
+        print(f"Schema update check completed with warning: {e}")
 
 
 if __name__ == "__main__":
