@@ -29,3 +29,6 @@ next-env.d.ts
 *.md
 !README.md
 
+
+.vercel
+.env*

@@ -59,6 +59,11 @@ class TimelinePoint(BaseModel):
     edits: int
     reverts: int
 
+class TimelineResponse(BaseModel):
+    window_label: str
+    window_days: int
+    data: List[TimelinePoint]
+
 class TrackRequest(BaseModel):
     title: str
 
@@ -360,42 +365,144 @@ def get_page_detail(page_id: int, db: Session = Depends(get_db)):
     return {"page": page, "recent_revisions": revisions}
 
 
-@router.get("/{page_id}/timeline", response_model=List[TimelinePoint])
-def get_page_timeline(page_id: int, window_days: int = 7, db: Session = Depends(get_db)):
-    """Aggregates edit and revert counts by hour for the timeline chart."""
+@router.get("/{page_id}/timeline", response_model=TimelineResponse)
+def get_page_timeline(page_id: int, window_days: Optional[int] = None, db: Session = Depends(get_db)):
+    """Aggregates edit and revert counts using an adaptive time window (72h -> 7d -> 30d -> all time)."""
     page = db.query(Page).filter_by(id=page_id).first()
     if not page:
         raise HTTPException(status_code=404, detail="Page not found")
 
-    cutoff    = datetime.now(timezone.utc) - timedelta(days=window_days)
-    revisions = db.query(Revision).filter(
-        Revision.page_id  == page_id,
-        Revision.timestamp >= cutoff,
-    ).order_by(Revision.timestamp.asc()).all()
+    now = datetime.now(timezone.utc)
+    selected_window: int = 3
+    selected_label: str = "Last 72 hours"
 
-    # Pre-populate all hourly slots so the chart has a continuous line
+    if window_days is not None and window_days > 0:
+        selected_window = window_days
+        selected_label = "Last 72 hours" if window_days == 3 else f"Last {window_days} days"
+    else:
+        # Adaptive tier selection:
+        # Tier 1: Last 72 hours (3 days)
+        cutoff_3d = now - timedelta(days=3)
+        has_3d = db.query(Revision.id).filter(Revision.page_id == page_id, Revision.timestamp >= cutoff_3d).first() is not None
+        if has_3d:
+            selected_window = 3
+            selected_label = "Last 72 hours"
+        else:
+            # Tier 2: Last 7 days
+            cutoff_7d = now - timedelta(days=7)
+            has_7d = db.query(Revision.id).filter(Revision.page_id == page_id, Revision.timestamp >= cutoff_7d).first() is not None
+            if has_7d:
+                selected_window = 7
+                selected_label = "Last 7 days"
+            else:
+                # Tier 3: Last 30 days
+                cutoff_30d = now - timedelta(days=30)
+                has_30d = db.query(Revision.id).filter(Revision.page_id == page_id, Revision.timestamp >= cutoff_30d).first() is not None
+                if has_30d:
+                    selected_window = 30
+                    selected_label = "Last 30 days"
+                else:
+                    # Tier 4: All time
+                    has_any = db.query(Revision.id).filter(Revision.page_id == page_id).first() is not None
+                    if has_any:
+                        selected_window = 0
+                        selected_label = "All time"
+                    else:
+                        return TimelineResponse(window_label="All time", window_days=0, data=[])
+
+    # Fetch revisions and build continuous timeline slots
     timeline_dict: dict = {}
-    start_time   = cutoff.replace(minute=0, second=0, microsecond=0)
-    current_time = start_time
-    now          = datetime.now(timezone.utc)
-    while current_time <= now:
-        timeline_dict[current_time.strftime("%Y-%m-%d %H:00")] = {"edits": 0, "reverts": 0}
-        current_time += timedelta(hours=1)
 
-    for rev in revisions:
-        ts = rev.timestamp
-        if ts.tzinfo is not None:
-            ts = ts.astimezone(timezone.utc)
-        time_str = ts.strftime("%Y-%m-%d %H:00")
-        if time_str in timeline_dict:
-            timeline_dict[time_str]["edits"] += 1
-            if rev.is_revert:
-                timeline_dict[time_str]["reverts"] += 1
+    if selected_window in (3, 7):
+        cutoff = now - timedelta(days=selected_window)
+        revisions = db.query(Revision).filter(
+            Revision.page_id == page_id,
+            Revision.timestamp >= cutoff,
+        ).order_by(Revision.timestamp.asc()).all()
 
-    return [
+        start_time = cutoff.replace(minute=0, second=0, microsecond=0)
+        current_time = start_time
+        while current_time <= now:
+            timeline_dict[current_time.strftime("%Y-%m-%d %H:00")] = {"edits": 0, "reverts": 0}
+            current_time += timedelta(hours=1)
+
+        for rev in revisions:
+            ts = rev.timestamp
+            if ts.tzinfo is not None:
+                ts = ts.astimezone(timezone.utc)
+            time_str = ts.strftime("%Y-%m-%d %H:00")
+            if time_str in timeline_dict:
+                timeline_dict[time_str]["edits"] += 1
+                if rev.is_revert:
+                    timeline_dict[time_str]["reverts"] += 1
+
+    elif selected_window == 30:
+        cutoff = now - timedelta(days=30)
+        revisions = db.query(Revision).filter(
+            Revision.page_id == page_id,
+            Revision.timestamp >= cutoff,
+        ).order_by(Revision.timestamp.asc()).all()
+
+        start_time = cutoff.replace(hour=0, minute=0, second=0, microsecond=0)
+        current_time = start_time
+        while current_time <= now:
+            timeline_dict[current_time.strftime("%Y-%m-%d")] = {"edits": 0, "reverts": 0}
+            current_time += timedelta(days=1)
+
+        for rev in revisions:
+            ts = rev.timestamp
+            if ts.tzinfo is not None:
+                ts = ts.astimezone(timezone.utc)
+            time_str = ts.strftime("%Y-%m-%d")
+            if time_str in timeline_dict:
+                timeline_dict[time_str]["edits"] += 1
+                if rev.is_revert:
+                    timeline_dict[time_str]["reverts"] += 1
+
+    else:
+        # All time (selected_window == 0)
+        revisions = db.query(Revision).filter(
+            Revision.page_id == page_id
+        ).order_by(Revision.timestamp.asc()).all()
+
+        if not revisions:
+            return TimelineResponse(window_label="All time", window_days=0, data=[])
+
+        earliest = revisions[0].timestamp
+        if earliest.tzinfo is not None:
+            earliest = earliest.astimezone(timezone.utc)
+
+        span_days = (now - earliest).days
+        if span_days <= 7:
+            start_time = earliest.replace(minute=0, second=0, microsecond=0)
+            current_time = start_time
+            while current_time <= now:
+                timeline_dict[current_time.strftime("%Y-%m-%d %H:00")] = {"edits": 0, "reverts": 0}
+                current_time += timedelta(hours=1)
+            fmt = "%Y-%m-%d %H:00"
+        else:
+            start_time = earliest.replace(hour=0, minute=0, second=0, microsecond=0)
+            current_time = start_time
+            while current_time <= now:
+                timeline_dict[current_time.strftime("%Y-%m-%d")] = {"edits": 0, "reverts": 0}
+                current_time += timedelta(days=1)
+            fmt = "%Y-%m-%d"
+
+        for rev in revisions:
+            ts = rev.timestamp
+            if ts.tzinfo is not None:
+                ts = ts.astimezone(timezone.utc)
+            time_str = ts.strftime(fmt)
+            if time_str in timeline_dict:
+                timeline_dict[time_str]["edits"] += 1
+                if rev.is_revert:
+                    timeline_dict[time_str]["reverts"] += 1
+
+    data = [
         TimelinePoint(time=k, edits=v["edits"], reverts=v["reverts"])
         for k, v in sorted(timeline_dict.items())
     ]
+    return TimelineResponse(window_label=selected_label, window_days=selected_window, data=data)
 
 
 @router.get("/{page_id}/summary")
