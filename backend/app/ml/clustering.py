@@ -1,19 +1,20 @@
+import gc
 import numpy as np
 from sqlalchemy.orm import Session
 from app.db import SessionLocal
-from app.models import Page
-from app.ml.embeddings import prepare_text_for_page, generate_embeddings
+from app.models import Page, Revision
+from app.ml.embeddings import generate_embeddings
 
 def perform_clustering(db: Session):
     """
-    Retrieves tracked pages, generates sentence embeddings, 
+    Retrieves top tracked pages by anomaly_score, generates sentence embeddings, 
     applies UMAP dimensionality reduction to 2D, runs HDBSCAN clustering,
     and updates Page cluster_id, x, and y coordinates in the database.
     """
     import umap
     import hdbscan
-    # 1. Fetch all pages with edits
-    pages = db.query(Page).all()
+    # 1. Fetch top pages by anomaly score (capped at top 200)
+    pages = db.query(Page).order_by(Page.anomaly_score.desc().nullslast()).limit(200).all()
     n_pages = len(pages)
     
     if n_pages < 3:
@@ -26,28 +27,56 @@ def perform_clustering(db: Session):
     page_ids = [page.id for page in pages]
     page_titles = [page.title for page in pages]
     
-    # Prepare text blocks (which will query database revisions)
-    texts = [prepare_text_for_page(page, db) for page in pages]
+    # Bulk fetch revision comments using a single SQL projection (avoids loading thousands of ORM objects)
+    rev_rows = db.query(Revision.page_id, Revision.comment)\
+                 .filter(Revision.page_id.in_(page_ids), Revision.comment.isnot(None))\
+                 .order_by(Revision.timestamp.desc())\
+                 .all()
+
+    comments_by_page = {}
+    for pid, comment in rev_rows:
+        if comment and len(comment.strip()) > 3:
+            comments_by_page.setdefault(pid, []).append(comment.strip())
+
+    texts = []
+    for page in pages:
+        comments = comments_by_page.get(page.id, [])
+        seen = set()
+        unique_comments = [x for x in comments if not (x in seen or seen.add(x))]
+        comments_str = " | ".join(unique_comments[:10])
+        text = f"Title: {page.title}. Wikipedia recent edits and disputes: {comments_str}"
+        texts.append(text)
     
     # Close the idle connection during embedding generation and UMAP calculations
     db.close()
 
-    # 2. Generate sentence embeddings
-    embeddings = generate_embeddings(texts)
+    # 2. Generate sentence embeddings with batch_size=32
+    embeddings = generate_embeddings(texts, batch_size=32)
     print(f"Generated embeddings matrix with shape: {embeddings.shape}")
+    
+    # Free raw text list from memory
+    del texts
+    del comments_by_page
+    del rev_rows
+    gc.collect()
 
-    # 3. Dimensionality reduction using UMAP
+    # 3. Dimensionality reduction using UMAP (low_memory=True)
     n_neighbors = min(15, max(2, n_pages - 1))
     
-    print(f"Reducing dimensions to 2D using UMAP (n_neighbors={n_neighbors})...")
-    # Set random_state for reproducible layout coordinates
+    print(f"Reducing dimensions to 2D using UMAP (n_neighbors={n_neighbors}, low_memory=True)...")
     reducer = umap.UMAP(
         n_neighbors=n_neighbors, 
         n_components=2, 
         metric="cosine", 
+        low_memory=True,
         random_state=42
     )
     coords = reducer.fit_transform(embeddings)
+
+    # Free embeddings matrix and reducer from memory
+    del embeddings
+    del reducer
+    gc.collect()
 
     # 4. Density-based clustering using HDBSCAN
     min_cluster_size = max(2, min(5, n_pages // 3))

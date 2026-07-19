@@ -20,7 +20,7 @@ export function ServerWakeGate({ children }: ServerWakeGateProps) {
   const [isTimedOut, setIsTimedOut] = useState<boolean>(false);
   const [retryCount, setRetryCount] = useState<number>(0);
 
-  const healthUrl = API_BASE ? `${API_BASE}/health` : "/health";
+  const healthUrl = API_BASE ? `${API_BASE}/api/health` : "/api/health";
 
   const checkHealth = useCallback(async () => {
     try {

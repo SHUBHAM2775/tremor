@@ -7,6 +7,7 @@ export function useTrackedArticles() {
   const [clusters, setClusters] = useState<ClusterPage[]>([]);
   const [loadingPages, setLoadingPages] = useState(true);
   const [pagesLimit, setPagesLimit] = useState(300);
+  const [apiError, setApiError] = useState<string | null>(null);
 
   const [bufferInfo, setBufferInfo] = useState<{
     buffer_size: number;
@@ -42,9 +43,11 @@ export function useTrackedArticles() {
       ]);
       setClusters(cd);
       setPages(pd);
+      setApiError(null);
       await fetchBufferInfo();
-    } catch (e) {
+    } catch (e: any) {
       console.error("Failed to fetch overview data:", e);
+      setApiError(e?.message || "Backend service unreachable");
     } finally {
       setLoadingPages(false);
     }
@@ -158,6 +161,7 @@ export function useTrackedArticles() {
     handleLoadMore,
     pagesLimit,
     setPagesLimit,
+    apiError,
   };
 }
 export default useTrackedArticles;

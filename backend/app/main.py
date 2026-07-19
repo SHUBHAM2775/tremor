@@ -25,13 +25,18 @@ extra_origins = os.getenv("CORS_ORIGINS")
 if extra_origins:
     origins.extend([o.strip() for o in extra_origins.split(",") if o.strip()])
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=origins,
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+cors_kwargs = {
+    "allow_origins": origins,
+    "allow_credentials": True,
+    "allow_methods": ["*"],
+    "allow_headers": ["*"],
+}
+
+origin_regex = os.getenv("CORS_ORIGIN_REGEX")
+if origin_regex:
+    cors_kwargs["allow_origin_regex"] = origin_regex
+
+app.add_middleware(CORSMiddleware, **cors_kwargs)
 
 # Register routes
 app.include_router(health.router)

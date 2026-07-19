@@ -32,6 +32,7 @@ export default function Dashboard() {
     loadingLoadMore,
     loadMoreMessage,
     handleLoadMore,
+    apiError,
   } = useTrackedArticles();
 
   const [selectedId, setSelectedId] = useState<number | null>(null);
@@ -281,6 +282,22 @@ export default function Dashboard() {
 
         <Ticker pages={pages} />
       </header>
+
+      {/* API Connection Warning Banner */}
+      {apiError && (
+        <div className="bg-red-950/80 border-b border-red-800/60 px-5 py-2 text-xs font-mono text-red-300 flex items-center justify-between z-50 shrink-0">
+          <span className="flex items-center gap-2">
+            <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse" />
+            Backend Connection Warning: {apiError}. Retrying automatically...
+          </span>
+          <button
+            onClick={() => fetchOverview()}
+            className="px-2 py-0.5 rounded bg-red-900/60 hover:bg-red-800 text-red-200 border border-red-700/50 transition-colors"
+          >
+            Retry Now
+          </button>
+        </div>
+      )}
 
       {/* ══ 3-COLUMN GRID ════════════════════════════════════════════════════════ */}
       <div className="flex-1 grid grid-cols-1 lg:grid-cols-12 min-h-0 overflow-hidden">

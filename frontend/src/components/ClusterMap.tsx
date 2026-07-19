@@ -49,23 +49,25 @@ export const ClusterMap = React.memo(function ClusterMap({
 
   // ─── UMAP/HDBSCAN coordinate math ──────────────────────────────────────────
 
-  const validNodes = useMemo(() => {
-    const nodesWithCoords = clusters.filter((c) => c.x !== null && c.y !== null);
-    if (nodesWithCoords.length <= 200) return nodesWithCoords;
+  const { validNodes, awaitingClusterCount } = useMemo(() => {
+    const clustered = clusters.filter((c) => c.x !== null && c.y !== null && (c.x !== 0.0 || c.y !== 0.0));
+    const awaitingCount = clusters.length - clustered.length;
+
+    if (clustered.length <= 200) return { validNodes: clustered, awaitingClusterCount: awaitingCount };
     
     // Sort by anomaly score desc
-    const sorted = [...nodesWithCoords].sort((a, b) => (b.anomaly_score || 0) - (a.anomaly_score || 0));
+    const sorted = [...clustered].sort((a, b) => (b.anomaly_score || 0) - (a.anomaly_score || 0));
     const top200 = sorted.slice(0, 200);
     
     // Selection Guarantee
     if (selectedId !== null && !top200.some((n) => n.id === selectedId)) {
-      const selectedNode = nodesWithCoords.find((n) => n.id === selectedId);
+      const selectedNode = clustered.find((n) => n.id === selectedId);
       if (selectedNode) {
         top200.push(selectedNode);
       }
     }
     
-    return top200;
+    return { validNodes: top200, awaitingClusterCount: awaitingCount };
   }, [clusters, selectedId]);
 
   const { clusterCounts, topClusterIds } = useMemo(() => {
@@ -92,9 +94,8 @@ export const ClusterMap = React.memo(function ClusterMap({
   );
 
   const { scaleX, scaleY } = useMemo(() => {
-    // Filter out default (0,0) coordinates for scale calculations
-    const xs = validNodes.map((n) => n.x as number).filter((x) => x !== 0.0);
-    const ys = validNodes.map((n) => n.y as number).filter((y) => y !== 0.0);
+    const xs = validNodes.map((n) => n.x as number);
+    const ys = validNodes.map((n) => n.y as number);
     
     if (xs.length === 0 || ys.length === 0) {
       return {
@@ -120,12 +121,10 @@ export const ClusterMap = React.memo(function ClusterMap({
 
     return {
       scaleX: (x: number) => {
-        if (x === 0.0) return SZ / 2;
         const clipped = Math.max(minClippedX, Math.min(maxClippedX, x));
         return PAD + ((clipped - minClippedX) / rangeX) * (SZ - 2 * PAD);
       },
       scaleY: (y: number) => {
-        if (y === 0.0) return SZ / 2;
         const clipped = Math.max(minClippedY, Math.min(maxClippedY, y));
         // Invert Y axis for SVG rendering
         return SZ - PAD - ((clipped - minClippedY) / rangeY) * (SZ - 2 * PAD);
@@ -788,14 +787,21 @@ export const ClusterMap = React.memo(function ClusterMap({
         className="px-4 py-2.5 flex items-center justify-between shrink-0"
         style={{ borderBottom: "1px solid var(--border)" }}
       >
-        <span
-          className="text-[10px] font-semibold uppercase tracking-widest flex items-center gap-2"
-          style={{ fontFamily: "var(--font-mono)", color: "var(--text-muted)" }}
-        >
-          <Globe className="w-3.5 h-3.5" style={{ color: "var(--text-subtle)" }} />
-          Topic Map
-          <InfoTooltip text="UMAP projection. Click clusters below or search to center & lock. Drag to pan. Scroll to zoom." position="bottom" />
-        </span>
+        <div className="flex items-center gap-2">
+          <span
+            className="text-[10px] font-semibold uppercase tracking-widest flex items-center gap-2"
+            style={{ fontFamily: "var(--font-mono)", color: "var(--text-muted)" }}
+          >
+            <Globe className="w-3.5 h-3.5" style={{ color: "var(--text-subtle)" }} />
+            Topic Map
+            <InfoTooltip text="UMAP projection. Click clusters below or search to center & lock. Drag to pan. Scroll to zoom." position="bottom" />
+          </span>
+          {awaitingClusterCount > 0 && (
+            <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-zinc-800/80 text-zinc-400 border border-zinc-700/50">
+              {awaitingClusterCount} awaiting clustering
+            </span>
+          )}
+        </div>
         <button
           id="recluster-btn"
           onClick={handleRecluster}

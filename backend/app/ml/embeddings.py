@@ -41,13 +41,13 @@ def prepare_text_for_page(page: Page, db: Session) -> str:
     text = f"Title: {page.title}. Wikipedia recent edits and disputes: {comments_str}"
     return text
 
-def generate_embeddings(texts: list[str]) -> np.ndarray:
+def generate_embeddings(texts: list[str], batch_size: int = 32) -> np.ndarray:
     """
-    Generates sentence embeddings for a list of texts.
+    Generates sentence embeddings for a list of texts in memory-efficient batches.
     """
     if not texts:
         return np.empty((0, 384)) # all-MiniLM-L6-v2 outputs 384-dimensional embeddings
         
     s_model = get_model()
-    embeddings = s_model.encode(texts, show_progress_bar=True)
+    embeddings = s_model.encode(texts, batch_size=batch_size, show_progress_bar=True)
     return cast(np.ndarray, embeddings)
