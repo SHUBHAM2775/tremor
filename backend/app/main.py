@@ -2,7 +2,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.db import init_db
-from app.routers import pages, clusters
+from app.routers import pages, clusters, health
 
 import os
 
@@ -34,6 +34,7 @@ app.add_middleware(
 )
 
 # Register routes
+app.include_router(health.router)
 app.include_router(pages.router)
 app.include_router(clusters.router)
 
@@ -45,6 +46,3 @@ def read_root():
         "description": "A seismograph for Wikipedia pages in active edit conflicts."
     }
 
-@app.get("/health")
-def health_check():
-    return {"status": "healthy"}

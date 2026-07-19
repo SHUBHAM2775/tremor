@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Newsreader, Inter, JetBrains_Mono } from "next/font/google";
 import "./globals.css";
 import CustomCursor from "./CustomCursor";
+import { ServerWakeGate } from "../components/ServerWakeGate";
 
 const newsreader = Newsreader({
   variable: "--font-heading",
@@ -46,7 +47,7 @@ export default function RootLayout({
       className={`${newsreader.variable} ${inter.variable} ${jetbrainsMono.variable} h-full`}
     >
       <body className="min-h-full flex flex-col">
-        {children}
+        <ServerWakeGate>{children}</ServerWakeGate>
         <CustomCursor />
       </body>
     </html>
