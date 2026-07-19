@@ -5,7 +5,7 @@ import Link from "next/link";
 import { Activity, BookOpen, Flame, BarChart2 } from "lucide-react";
 
 // Types
-import { PageDetail, TimelinePoint } from "../types";
+import { PageDetail, TimelineResponse } from "../types";
 
 // Hooks
 import { useTrackedArticles } from "../hooks/useTrackedArticles";
@@ -56,7 +56,7 @@ export default function Dashboard() {
   // ─── Detail and Comparison State ───────────────────────────────────────────
   const [detail, setDetail] = useState<PageDetail | null>(null);
   const [summary, setSummary] = useState<string>("");
-  const [timeline, setTimeline] = useState<TimelinePoint[]>([]);
+  const [timeline, setTimeline] = useState<TimelineResponse | null>(null);
 
   const [compareId, setCompareId] = useState<number | null>(null);
   const [compareDetail, setCompareDetail] = useState<PageDetail | null>(null);
@@ -100,7 +100,7 @@ export default function Dashboard() {
       })
       .catch((e) => console.error("Failed to fetch page details:", e));
 
-    const timelinePromise = safeFetchJson<TimelinePoint[]>(`${API_BASE}/api/pages/${id}/timeline?window_days=3`)
+    const timelinePromise = safeFetchJson<TimelineResponse>(`${API_BASE}/api/pages/${id}/timeline`)
       .then((tl) => {
         setTimeline(tl);
       })

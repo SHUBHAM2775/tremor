@@ -1,11 +1,19 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 
 export default function CustomCursor() {
   const cursorRef = useRef<HTMLDivElement>(null);
+  const [mounted, setMounted] = useState(false);
 
   useEffect(() => {
+    setMounted(true);
+  }, []);
+
+  useEffect(() => {
+    if (!mounted) return;
+
     // 1. Skip rendering and cursor hijacking on touch devices
     const isTouch =
       typeof window !== "undefined" &&
@@ -91,9 +99,11 @@ export default function CustomCursor() {
       document.removeEventListener("mouseleave", onMouseLeave);
       document.removeEventListener("mouseenter", onMouseEnter);
     };
-  }, []);
+  }, [mounted]);
 
-  return (
+  if (!mounted) return null;
+
+  const cursorContent = (
     <div ref={cursorRef} className="seismograph-cursor">
       {/* Subtle hover background glow centered around the tip hotspot */}
       <div className="cursor-glow" />
@@ -118,4 +128,6 @@ export default function CustomCursor() {
       </svg>
     </div>
   );
+
+  return createPortal(cursorContent, document.body);
 }

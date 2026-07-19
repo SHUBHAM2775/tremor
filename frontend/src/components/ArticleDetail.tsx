@@ -22,7 +22,7 @@ import {
   CartesianGrid,
   Legend,
 } from "recharts";
-import { PageDetail, TimelinePoint, getLevel, LEVEL_META } from "../types";
+import { PageDetail, TimelineResponse, getLevel, LEVEL_META } from "../types";
 import { InfoTooltip, ChartTooltip } from "./UtilityComponents";
 import { CompareModePanel } from "./CompareModePanel";
 
@@ -31,7 +31,7 @@ interface ArticleDetailProps {
   loadingDetail: boolean;
   loadingSummary: boolean;
   summary: string;
-  timeline: TimelinePoint[];
+  timeline: TimelineResponse | null;
   revisionsExpanded: boolean;
   setRevisionsExpanded: React.Dispatch<React.SetStateAction<boolean>>;
   compareId: number | null;
@@ -44,7 +44,7 @@ interface ArticleDetailProps {
 
 const REVISIONS_PREVIEW = 5;
 
-export function ArticleDetail({
+export const ArticleDetail = React.memo(function ArticleDetail({
   detail,
   loadingDetail,
   loadingSummary,
@@ -62,20 +62,21 @@ export function ArticleDetail({
   // ─── Performance Memoization ──────────────────────────────────────────────────
 
   const timelineChart = useMemo(() => {
-    if (timeline.filter((t) => t.edits > 0 || t.reverts > 0).length === 0) {
+    const points = timeline?.data || [];
+    if (points.filter((t) => t.edits > 0 || t.reverts > 0).length === 0) {
       return (
         <div
           className="h-full flex flex-col items-center justify-center gap-2"
           style={{ color: "var(--text-subtle)" }}
         >
           <BarChart2 className="w-7 h-7" />
-          <span className="text-xs">No edits in this timeframe</span>
+          <span className="text-xs">No edits recorded for this page</span>
         </div>
       );
     }
     return (
       <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0}>
-        <AreaChart data={timeline} margin={{ top: 4, right: 4, left: -24, bottom: 4 }}>
+        <AreaChart data={points} margin={{ top: 4, right: 4, left: -24, bottom: 4 }}>
           <defs>
             <linearGradient id="gEdits" x1="0" y1="0" x2="0" y2="1">
               <stop offset="0%" stopColor="#06b6d4" stopOpacity={0.25} />
@@ -99,7 +100,7 @@ export function ArticleDetail({
               fontSize: 10,
               fontFamily: "var(--font-mono)",
             }}
-            tickFormatter={(t) => t.substring(5, 10)}
+            tickFormatter={(t) => (t ? t.substring(5, 10) : "")}
           />
           <YAxis
             stroke="transparent"
@@ -434,7 +435,7 @@ export function ArticleDetail({
                 className="text-[10px]"
                 style={{ fontFamily: "var(--font-mono)", color: "var(--text-subtle)" }}
               >
-                Last 72 hours
+                {timeline?.window_label || "Last 72 hours"}
               </span>
             </div>
 
@@ -511,5 +512,5 @@ export function ArticleDetail({
       />
     </main>
   );
-}
+});
 export default ArticleDetail;

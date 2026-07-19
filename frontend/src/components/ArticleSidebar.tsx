@@ -1,5 +1,5 @@
-import React, { useRef, useCallback } from "react";
-import { Radio, Plus, RefreshCw, X, BookOpen, ChevronUp, ChevronDown } from "lucide-react";
+import React, { useState, useMemo, useRef, useCallback } from "react";
+import { Radio, Plus, RefreshCw, X, BookOpen, ChevronUp, ChevronDown, ArrowUpDown } from "lucide-react";
 import { PageInfo, FetchStatus, getLevel, LEVEL_META } from "../types";
 
 interface ArticleSidebarProps {
@@ -48,6 +48,29 @@ export const ArticleSidebar = React.memo(function ArticleSidebar({
   loadingPages,
 }: ArticleSidebarProps) {
   const articleListRef = useRef<HTMLDivElement>(null);
+  const [sortBy, setSortBy] = useState<"contested" | "latest">("contested");
+
+  const sortedPages = useMemo(() => {
+    const list = [...filteredPages];
+    if (sortBy === "latest") {
+      list.sort((a, b) => {
+        const timeA = a.last_checked ? new Date(a.last_checked).getTime() : 0;
+        const timeB = b.last_checked ? new Date(b.last_checked).getTime() : 0;
+        if (timeA === timeB) {
+          return (b.anomaly_score || 0) - (a.anomaly_score || 0);
+        }
+        return timeB - timeA;
+      });
+    } else {
+      // "contested" -> anomaly_score descending, nulls last
+      list.sort((a, b) => {
+        const scoreA = a.anomaly_score ?? -Infinity;
+        const scoreB = b.anomaly_score ?? -Infinity;
+        return scoreB - scoreA;
+      });
+    }
+    return list;
+  }, [filteredPages, sortBy]);
 
   const scrollToTop = useCallback(() => {
     if (articleListRef.current) {
@@ -121,6 +144,38 @@ export const ArticleSidebar = React.memo(function ArticleSidebar({
         </button>
       </form>
 
+      {/* Sort Control Toolbar */}
+      <div
+        className="px-3 py-2 flex items-center justify-between shrink-0 text-xs"
+        style={{
+          borderBottom: "1px solid var(--border-muted)",
+          background: "var(--bg-surface)",
+        }}
+      >
+        <div
+          className="flex items-center gap-1.5 text-[10px] uppercase tracking-wider font-semibold"
+          style={{ fontFamily: "var(--font-mono)", color: "var(--text-subtle)" }}
+        >
+          <ArrowUpDown className="w-3.5 h-3.5" style={{ color: "var(--accent)" }} />
+          <span>Sort</span>
+        </div>
+        <select
+          id="article-sort-select"
+          value={sortBy}
+          onChange={(e) => setSortBy(e.target.value as "contested" | "latest")}
+          className="px-2 py-1 rounded text-xs cursor-pointer focus:outline-none transition-colors border"
+          style={{
+            background: "var(--bg-base)",
+            borderColor: "var(--border-muted)",
+            color: "var(--text-primary)",
+            fontFamily: "var(--font-mono)",
+          }}
+        >
+          <option value="contested">Most Contested</option>
+          <option value="latest">Latest Conflicts</option>
+        </select>
+      </div>
+
       {/* On-demand fetch status message */}
       {fetchStatus !== "idle" && (
         <div
@@ -171,7 +226,7 @@ export const ArticleSidebar = React.memo(function ArticleSidebar({
                 <p className="text-xs mt-1 leading-relaxed">Type a Wikipedia article title above and press enter to start tracking its edit activity.</p>
               </div>
             </div>
-          ) : filteredPages.length === 0 ? (
+          ) : sortedPages.length === 0 ? (
             <div className="flex flex-col gap-0">
               <div
                 className="flex flex-col items-center justify-center py-8 gap-2 px-4 text-center"
@@ -213,7 +268,7 @@ export const ArticleSidebar = React.memo(function ArticleSidebar({
               )}
             </div>
           ) : (
-            filteredPages.map((p, idx) => {
+            sortedPages.map((p, idx) => {
               const isSelected = p.id === selectedId;
               const score = p.anomaly_score || 0;
               const level = getLevel(score);

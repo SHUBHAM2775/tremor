@@ -33,6 +33,12 @@ export interface TimelinePoint {
   reverts: number;
 }
 
+export interface TimelineResponse {
+  window_label: string;
+  window_days: number;
+  data: TimelinePoint[];
+}
+
 export interface ClusterPage {
   id: number;
   title: string;
