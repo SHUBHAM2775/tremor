@@ -84,24 +84,25 @@ def compute_page_anomaly_score(db: Session, page: Page, window_hours: int = 24) 
 
     No artificial ceiling is applied.  Result rounded to 2 dp.
     """
-    # ── 1. Fetch all revisions ────────────────────────────────────────────────
-    revisions = db.query(Revision).filter_by(page_id=page.id).all()
+    # ── 1. Fetch all revisions (column projection) ────────────────────────────
+    revisions = db.query(
+        Revision.timestamp, Revision.is_revert, Revision.is_bot, Revision.editor
+    ).filter_by(page_id=page.id).all()
     if len(revisions) < 5:
         # Not enough history to establish any meaningful score
         return 0.0
 
     # ── 2. Build DataFrame ────────────────────────────────────────────────────
     data = []
-    for rev in revisions:
-        ts = rev.timestamp
+    for ts, is_revert, is_bot, editor in revisions:
         # Normalise to UTC-naive for consistent pandas operations
         if ts.tzinfo is not None:
             ts = ts.astimezone(timezone.utc).replace(tzinfo=None)
         data.append({
             "timestamp": ts,
-            "is_revert": int(rev.is_revert),
-            "is_bot":    int(rev.is_bot),
-            "editor":    rev.editor or "unknown",
+            "is_revert": int(is_revert),
+            "is_bot":    int(is_bot),
+            "editor":    editor or "unknown",
         })
 
     df = pd.DataFrame(data)

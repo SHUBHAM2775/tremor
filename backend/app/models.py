@@ -14,7 +14,7 @@ class Page(Base):
     id = Column(Integer, primary_key=True, index=True)
     title = Column(String, unique=True, index=True, nullable=False)
     wiki = Column(String, nullable=False)
-    anomaly_score = Column(Float, nullable=True)
+    anomaly_score = Column(Float, index=True, nullable=True)
     cluster_id = Column(Integer, default=-1, nullable=True)
     x = Column(Float, default=0.0, nullable=True)
     y = Column(Float, default=0.0, nullable=True)

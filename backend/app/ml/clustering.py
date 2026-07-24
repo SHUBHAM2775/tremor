@@ -5,6 +5,8 @@ from app.db import SessionLocal
 from app.models import Page, Revision
 from app.ml.embeddings import generate_embeddings
 
+from sqlalchemy import func
+
 def perform_clustering(db: Session):
     """
     Retrieves top tracked pages by anomaly_score, generates sentence embeddings, 
@@ -13,8 +15,8 @@ def perform_clustering(db: Session):
     """
     import umap
     import hdbscan
-    # 1. Fetch top pages by anomaly score (capped at top 200)
-    pages = db.query(Page).order_by(Page.anomaly_score.desc().nullslast()).limit(200).all()
+    # 1. Fetch top pages by anomaly score (capped at top 200, fetching only id and title)
+    pages = db.query(Page.id, Page.title).order_by(Page.anomaly_score.desc().nullslast()).limit(200).all()
     n_pages = len(pages)
     
     if n_pages < 3:
@@ -24,14 +26,32 @@ def perform_clustering(db: Session):
     print(f"Starting clustering pipeline for {n_pages} pages...")
 
     # Load required data into memory to allow calculations without active db lookups
-    page_ids = [page.id for page in pages]
-    page_titles = [page.title for page in pages]
+    page_ids = [p[0] for p in pages]
+    page_titles = [p[1] for p in pages]
     
-    # Bulk fetch revision comments using a single SQL projection (avoids loading thousands of ORM objects)
-    rev_rows = db.query(Revision.page_id, Revision.comment)\
-                 .filter(Revision.page_id.in_(page_ids), Revision.comment.isnot(None))\
-                 .order_by(Revision.timestamp.desc())\
-                 .all()
+    # Bulk fetch max 15 recent revision comments per page using SQL windowing (row_number)
+    subq = (
+        db.query(
+            Revision.page_id,
+            Revision.comment,
+            func.row_number().over(
+                partition_by=Revision.page_id,
+                order_by=Revision.timestamp.desc()
+            ).label("rn")
+        )
+        .filter(
+            Revision.page_id.in_(page_ids),
+            Revision.comment.isnot(None),
+            func.length(func.trim(Revision.comment)) > 3
+        )
+        .subquery()
+    )
+
+    rev_rows = (
+        db.query(subq.c.page_id, subq.c.comment)
+        .filter(subq.c.rn <= 15)
+        .all()
+    )
 
     comments_by_page = {}
     for pid, comment in rev_rows:
@@ -39,12 +59,12 @@ def perform_clustering(db: Session):
             comments_by_page.setdefault(pid, []).append(comment.strip())
 
     texts = []
-    for page in pages:
-        comments = comments_by_page.get(page.id, [])
+    for pid, ptitle in pages:
+        comments = comments_by_page.get(pid, [])
         seen = set()
         unique_comments = [x for x in comments if not (x in seen or seen.add(x))]
         comments_str = " | ".join(unique_comments[:10])
-        text = f"Title: {page.title}. Wikipedia recent edits and disputes: {comments_str}"
+        text = f"Title: {ptitle}. Wikipedia recent edits and disputes: {comments_str}"
         texts.append(text)
     
     # Close the idle connection during embedding generation and UMAP calculations

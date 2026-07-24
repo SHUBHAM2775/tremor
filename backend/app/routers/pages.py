@@ -415,7 +415,7 @@ def get_page_timeline(page_id: int, window_days: Optional[int] = None, db: Sessi
 
     if selected_window in (3, 7):
         cutoff = now - timedelta(days=selected_window)
-        revisions = db.query(Revision).filter(
+        revisions = db.query(Revision.timestamp, Revision.is_revert).filter(
             Revision.page_id == page_id,
             Revision.timestamp >= cutoff,
         ).order_by(Revision.timestamp.asc()).all()
@@ -426,19 +426,18 @@ def get_page_timeline(page_id: int, window_days: Optional[int] = None, db: Sessi
             timeline_dict[current_time.strftime("%Y-%m-%d %H:00")] = {"edits": 0, "reverts": 0}
             current_time += timedelta(hours=1)
 
-        for rev in revisions:
-            ts = rev.timestamp
+        for ts, is_revert in revisions:
             if ts.tzinfo is not None:
                 ts = ts.astimezone(timezone.utc)
             time_str = ts.strftime("%Y-%m-%d %H:00")
             if time_str in timeline_dict:
                 timeline_dict[time_str]["edits"] += 1
-                if rev.is_revert:
+                if is_revert:
                     timeline_dict[time_str]["reverts"] += 1
 
     elif selected_window == 30:
         cutoff = now - timedelta(days=30)
-        revisions = db.query(Revision).filter(
+        revisions = db.query(Revision.timestamp, Revision.is_revert).filter(
             Revision.page_id == page_id,
             Revision.timestamp >= cutoff,
         ).order_by(Revision.timestamp.asc()).all()
@@ -449,26 +448,25 @@ def get_page_timeline(page_id: int, window_days: Optional[int] = None, db: Sessi
             timeline_dict[current_time.strftime("%Y-%m-%d")] = {"edits": 0, "reverts": 0}
             current_time += timedelta(days=1)
 
-        for rev in revisions:
-            ts = rev.timestamp
+        for ts, is_revert in revisions:
             if ts.tzinfo is not None:
                 ts = ts.astimezone(timezone.utc)
             time_str = ts.strftime("%Y-%m-%d")
             if time_str in timeline_dict:
                 timeline_dict[time_str]["edits"] += 1
-                if rev.is_revert:
+                if is_revert:
                     timeline_dict[time_str]["reverts"] += 1
 
     else:
         # All time (selected_window == 0)
-        revisions = db.query(Revision).filter(
+        revisions = db.query(Revision.timestamp, Revision.is_revert).filter(
             Revision.page_id == page_id
         ).order_by(Revision.timestamp.asc()).all()
 
         if not revisions:
             return TimelineResponse(window_label="All time", window_days=0, data=[])
 
-        earliest = revisions[0].timestamp
+        earliest = revisions[0][0]
         if earliest.tzinfo is not None:
             earliest = earliest.astimezone(timezone.utc)
 
@@ -488,14 +486,13 @@ def get_page_timeline(page_id: int, window_days: Optional[int] = None, db: Sessi
                 current_time += timedelta(days=1)
             fmt = "%Y-%m-%d"
 
-        for rev in revisions:
-            ts = rev.timestamp
+        for ts, is_revert in revisions:
             if ts.tzinfo is not None:
                 ts = ts.astimezone(timezone.utc)
             time_str = ts.strftime(fmt)
             if time_str in timeline_dict:
                 timeline_dict[time_str]["edits"] += 1
-                if rev.is_revert:
+                if is_revert:
                     timeline_dict[time_str]["reverts"] += 1
 
     data = [

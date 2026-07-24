@@ -32,14 +32,31 @@ def get_clusters(limit: int = 200, db: Session = Depends(get_db)):
     if cached is not None:
         return cached
 
-    rows = db.query(Page).filter(
+    rows = db.query(
+        Page.id,
+        Page.title,
+        Page.anomaly_score,
+        Page.cluster_id,
+        Page.x,
+        Page.y,
+    ).filter(
         Page.x.isnot(None),
         Page.y.isnot(None),
     ).order_by(
         Page.anomaly_score.desc().nullslast()
     ).limit(limit).all()
 
-    result = [ClusterPageResponse.model_validate(p).model_dump(mode="json") for p in rows]
+    result = [
+        {
+            "id": r.id,
+            "title": r.title,
+            "anomaly_score": r.anomaly_score,
+            "cluster_id": r.cluster_id,
+            "x": r.x,
+            "y": r.y,
+        }
+        for r in rows
+    ]
     cache_set(cache_key, result, ttl=600)
     return result
 

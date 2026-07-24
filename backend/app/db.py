@@ -18,7 +18,12 @@ if DATABASE_URL.startswith("sqlite") or "sqlite" in DATABASE_URL:
 elif "postgresql" in DATABASE_URL or DATABASE_URL.startswith("postgres"):
     connect_args = {"connect_timeout": 10}
 
-engine = create_engine(DATABASE_URL, connect_args=connect_args)
+engine_kwargs = {"connect_args": connect_args}
+if "postgresql" in DATABASE_URL or DATABASE_URL.startswith("postgres"):
+    engine_kwargs["pool_pre_ping"] = True
+    engine_kwargs["pool_recycle"] = 300
+
+engine = create_engine(DATABASE_URL, **engine_kwargs)
 
 # Enable SQLite Write-Ahead Logging (WAL) mode for concurrent read/write support
 if engine.dialect.name == "sqlite":

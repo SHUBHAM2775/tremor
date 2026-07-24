@@ -140,9 +140,10 @@ def poll_changes():
     
     print(f"Polling Wikipedia recent changes: {start_iso} to {end_iso} (current UTC: {now.strftime('%Y-%m-%dT%H:%M:%SZ')})")
 
-    # Load all tracked page titles into a set for fast lookup
+    # Load all tracked page titles and Page objects into memory for O(1) lookup without per-edit queries
     t_load = time.time()
-    tracked_titles = {p.title for p in db.query(Page.title).all()}
+    tracked_pages = {p.title: p for p in db.query(Page).all()}
+    tracked_titles = set(tracked_pages.keys())
     print(f"Loaded {len(tracked_titles)} tracked pages from the database.")
     t_load = log_duration("Loading tracked pages", t_load)
 
@@ -209,6 +210,16 @@ def poll_changes():
         batch_revisions_added = 0
         batch_updated_pages = set()
 
+        # Batch-check revision existence using a single SQL query for all revids in this batch
+        batch_rev_ids = [
+            c.get("revid") for c in recentchanges
+            if c.get("type") == "edit" and c.get("revid") and c.get("title") in tracked_titles
+        ]
+        existing_rev_ids = set()
+        if batch_rev_ids:
+            existing_rows = db.query(Revision.revision_id).filter(Revision.revision_id.in_(batch_rev_ids)).all()
+            existing_rev_ids = {r[0] for r in existing_rows}
+
         t_process_start = time.time()
         for change in recentchanges:
             if change.get("type") != "edit":
@@ -229,12 +240,7 @@ def poll_changes():
             # Check if this is an article we are currently tracking
             if title in tracked_titles:
                 rev_id = change.get("revid")
-                if not rev_id:
-                    continue
-
-                # Deduplicate: skip if revision exists
-                existing = db.query(Revision).filter_by(revision_id=rev_id).first()
-                if existing:
+                if not rev_id or rev_id in existing_rev_ids:
                     continue
 
                 # Ingest revision
@@ -246,8 +252,8 @@ def poll_changes():
                 # Parse timestamp
                 dt = last_processed_change_ts or datetime.fromisoformat(ts_str.replace("Z", "+00:00"))
 
-                # Resolve Page object
-                page = db.query(Page).filter_by(title=title).first()
+                # Resolve Page object from pre-loaded in-memory map
+                page = tracked_pages.get(title)
                 if page:
                     revision = Revision(
                         revision_id=rev_id,
@@ -262,7 +268,8 @@ def poll_changes():
                     db.add(revision)
                     batch_revisions_added += 1
                     batch_updated_pages.add(page)
-                    print(f" [INGEST] '{title}' | Rev {rev_id} | Revert={is_revert} | Bot={is_bot}")
+                    existing_rev_ids.add(rev_id)  # Prevent duplicates within same batch
+                    safe_print(f" [INGEST] '{title}' | Rev {rev_id} | Revert={is_revert} | Bot={is_bot}")
             else:
                 # Track untracked changes in memory first to identify high-conflict pages
                 comment = change.get("comment", "")
@@ -295,7 +302,7 @@ def poll_changes():
                     page.anomaly_score = score  # type: ignore
                     page.last_checked = now  # type: ignore
                     db.add(page)
-                    print(f" [SCORE] '{page.title}' updated to {score}")
+                    safe_print(f" [SCORE] '{page.title}' updated to {score}")
                 
                 db.commit()
                 t_score_start = log_duration(f"Recalculating and committing anomaly scores for batch {batch_count}", t_score_start)
@@ -310,7 +317,7 @@ def poll_changes():
                 revisions_added_count += batch_revisions_added
                 updated_pages.update(batch_updated_pages)
             except Exception as db_err:
-                print(f"ERROR: DB error while committing batch {batch_count}: {db_err!r}")
+                safe_print(f"ERROR: DB error while committing batch {batch_count}: {db_err!r}")
                 db.rollback()
                 # Break out of loop to keep database and Redis checkpoints synchronized
                 break
@@ -411,6 +418,11 @@ def poll_changes():
     print(f"[REDIS BUDGET] This polling run consumed approximately {approx_commands} Redis commands.")
     
     db.close()
+    try:
+        from app.db import engine
+        engine.dispose()
+    except Exception:
+        pass
     log_duration("Entire polling run", start_run_time)
 
 if __name__ == "__main__":

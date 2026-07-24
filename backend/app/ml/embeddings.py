@@ -23,14 +23,20 @@ def prepare_text_for_page(page: Page, db: Session) -> str:
     Prepares a descriptive text block for a page by combining its title
     with its edit summaries (comments), prioritizing revert comments.
     """
-    # Fetch recent revisions
-    revisions = db.query(Revision).filter_by(page_id=page.id).order_by(Revision.timestamp.desc()).limit(30).all()
+    # Fetch recent revision comments
+    rev_comments = (
+        db.query(Revision.comment)
+        .filter_by(page_id=page.id)
+        .order_by(Revision.timestamp.desc())
+        .limit(30)
+        .all()
+    )
     
     # Extract comments
     comments = []
-    for rev in revisions:
-        if rev.comment and len(rev.comment.strip()) > 3:
-            comments.append(rev.comment.strip())
+    for (comment,) in rev_comments:
+        if comment and len(comment.strip()) > 3:
+            comments.append(comment.strip())
             
     # Remove duplicates but preserve order
     seen = set()
