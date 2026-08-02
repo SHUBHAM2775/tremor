@@ -121,17 +121,20 @@ def perform_clustering(db: Session):
         if max_abs > 0:
             coords /= max_abs
 
-    # 6. Save results to the database using a fresh connection session
+    # 6. Save results to the database using a single bulk write-back in a fresh connection session
     print("Saving cluster labels and 2D coordinates to database...")
     new_db = SessionLocal()
     try:
-        for i, pid in enumerate(page_ids):
-            page = new_db.query(Page).filter_by(id=pid).first()
-            if page:
-                page.x = float(coords[i, 0])  # type: ignore
-                page.y = float(coords[i, 1])  # type: ignore
-                page.cluster_id = int(cluster_labels[i])  # type: ignore
-                new_db.add(page)
+        mappings = [
+            {
+                "id": pid,
+                "x": float(coords[i, 0]),
+                "y": float(coords[i, 1]),
+                "cluster_id": int(cluster_labels[i]),
+            }
+            for i, pid in enumerate(page_ids)
+        ]
+        new_db.bulk_update_mappings(Page, mappings)
         new_db.commit()
     except Exception as e:
         new_db.rollback()

@@ -19,6 +19,8 @@ HEADERS = {
     "User-Agent": "TremorPollBot/1.0 (https://github.com/username/tremor; contact: dev@example.com)"
 }
 
+MAX_PROMOTIONS_PER_RUN = 20
+
 def safe_print(msg: str):
     try:
         print(msg)
@@ -140,9 +142,9 @@ def poll_changes():
     
     print(f"Polling Wikipedia recent changes: {start_iso} to {end_iso} (current UTC: {now.strftime('%Y-%m-%dT%H:%M:%SZ')})")
 
-    # Load all tracked page titles and Page objects into memory for O(1) lookup without per-edit queries
+    # Project only id and title for O(1) lookup without fetching full 9-column Page ORM objects
     t_load = time.time()
-    tracked_pages = {p.title: p for p in db.query(Page).all()}
+    tracked_pages = {p.title: p for p in db.query(Page.id, Page.title).all()}
     tracked_titles = set(tracked_pages.keys())
     print(f"Loaded {len(tracked_titles)} tracked pages from the database.")
     t_load = log_duration("Loading tracked pages", t_load)
@@ -208,7 +210,7 @@ def poll_changes():
                 break
 
         batch_revisions_added = 0
-        batch_updated_pages = set()
+        batch_updated_page_ids = set()
 
         # Batch-check revision existence using a single SQL query for all revids in this batch
         batch_rev_ids = [
@@ -252,12 +254,12 @@ def poll_changes():
                 # Parse timestamp
                 dt = last_processed_change_ts or datetime.fromisoformat(ts_str.replace("Z", "+00:00"))
 
-                # Resolve Page object from pre-loaded in-memory map
-                page = tracked_pages.get(title)
-                if page:
+                # Resolve Page info from projected map
+                page_info = tracked_pages.get(title)
+                if page_info:
                     revision = Revision(
                         revision_id=rev_id,
-                        page_id=page.id,
+                        page_id=page_info.id,
                         editor=change.get("user", "Unknown"),
                         timestamp=dt,
                         byte_change=change.get("newlen", 0) - change.get("oldlen", 0),
@@ -267,7 +269,7 @@ def poll_changes():
                     )
                     db.add(revision)
                     batch_revisions_added += 1
-                    batch_updated_pages.add(page)
+                    batch_updated_page_ids.add(page_info.id)
                     existing_rev_ids.add(rev_id)  # Prevent duplicates within same batch
                     safe_print(f" [INGEST] '{title}' | Rev {rev_id} | Revert={is_revert} | Bot={is_bot}")
             else:
@@ -294,6 +296,9 @@ def poll_changes():
                 db.commit()
                 t_commit_start = log_duration(f"Committing {batch_revisions_added} new revisions for batch {batch_count}", t_commit_start)
 
+                # Fetch full Page ORM objects only for updated pages in this batch
+                batch_updated_pages = db.query(Page).filter(Page.id.in_(batch_updated_page_ids)).all() if batch_updated_page_ids else []
+
                 # Trigger anomaly scoring only for updated pages in this batch
                 print(f"Batch {batch_count}: Recalculating anomaly scores for {len(batch_updated_pages)} updated pages...")
                 t_score_start = time.time()
@@ -306,6 +311,26 @@ def poll_changes():
                 
                 db.commit()
                 t_score_start = log_duration(f"Recalculating and committing anomaly scores for batch {batch_count}", t_score_start)
+
+                # Batched conflict classification for updated pages in this batch
+                if batch_updated_pages:
+                    print(f"Batch {batch_count}: Classifying conflict types for {len(batch_updated_pages)} updated pages...")
+                    t_classify_start = time.time()
+                    from app.ml.embeddings import prepare_text_for_page
+                    from app.ml.classifier import classify_batch
+
+                    pages_list = list(batch_updated_pages)
+                    texts = [prepare_text_for_page(p, db) for p in pages_list]
+                    classifications = classify_batch(texts)
+
+                    for page, (ctype, confidence) in zip(pages_list, classifications):
+                        page.conflict_type = ctype  # type: ignore
+                        page.conflict_type_confidence = confidence  # type: ignore
+                        db.add(page)
+                        safe_print(f" [CLASSIFY] '{page.title}' -> {ctype} ({confidence:.2f})")
+
+                    db.commit()
+                    t_classify_start = log_duration(f"Classifying and committing conflict types for batch {batch_count}", t_classify_start)
 
                 # Invalidate cache
                 try:
@@ -348,6 +373,10 @@ def poll_changes():
         print("Checking for high-conflict untracked candidates to promote...")
         candidates_checked = 0
         for title, activity_list in untracked_activity.items():
+            if buffered_candidates_count >= MAX_PROMOTIONS_PER_RUN:
+                print(f"Reached MAX_PROMOTIONS_PER_RUN ({MAX_PROMOTIONS_PER_RUN}). Deferring remaining candidates to subsequent poll cycles.")
+                break
+
             # Check if there's any 5-minute window with >= 4 edits or >= 2 reverts
             activity_list.sort(key=lambda x: x["timestamp"])
             is_high_conflict = False

@@ -61,8 +61,9 @@ def _ensure_connected() -> bool:
 
             client = redis_lib.from_url(
                 REDIS_URL,
-                socket_connect_timeout=2,
-                socket_timeout=2,
+                socket_connect_timeout=5,
+                socket_timeout=5,
+                retry_on_timeout=True,
             )
             client.ping()           # raises ConnectionError / TimeoutError if down
             queue = rq_lib.Queue("tremor_track", connection=client)
@@ -109,9 +110,9 @@ def enqueue_track_job(title: str) -> Optional[str]:
         import hashlib
         import rq as rq_lib  # type: ignore
         
-        # Use a deterministic, URL-safe job ID based on MD5 of the page title
+        # Use a deterministic, URL-safe job ID based on MD5 of the page title ([a-zA-Z0-9_-])
         title_hash = hashlib.md5(title.encode("utf-8")).hexdigest()
-        job_id = f"track:{title_hash}"
+        job_id = f"track_{title_hash}"
         
         # Check if job is already queued, active, or deferred to prevent duplicates
         try:
