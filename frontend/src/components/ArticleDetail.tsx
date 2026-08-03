@@ -22,7 +22,7 @@ import {
   CartesianGrid,
   Legend,
 } from "recharts";
-import { PageDetail, TimelineResponse, getLevel, LEVEL_META } from "../types";
+import { PageDetail, TimelineResponse, getLevel, LEVEL_META, CONFLICT_TYPE_META } from "../types";
 import { InfoTooltip, ChartTooltip } from "./UtilityComponents";
 import { CompareModePanel } from "./CompareModePanel";
 
@@ -341,6 +341,9 @@ export const ArticleDetail = React.memo(function ArticleDetail({
               const level = getLevel(score);
               const meta = LEVEL_META[level];
               const scoreColor = level === "critical" ? "var(--color-critical)" : level === "elevated" ? "var(--color-elevated)" : "var(--color-normal)";
+              const conflictType = detail.page.conflict_type;
+              const typeMeta = conflictType ? CONFLICT_TYPE_META[conflictType] : null;
+
               return (
                 <div
                   className="flex flex-col items-end shrink-0 p-4 rounded"
@@ -363,18 +366,33 @@ export const ArticleDetail = React.memo(function ArticleDetail({
                   >
                     {score.toFixed(2)}
                   </span>
-                  <span
-                    className="text-[10px] font-semibold mt-2 px-2.5 py-0.5 rounded"
-                    style={{
-                      fontFamily: "var(--font-mono)",
-                      color: scoreColor,
-                      background: level === "critical" ? "rgba(239,68,68,0.1)" : level === "elevated" ? "rgba(249,115,22,0.1)" : "rgba(34,197,94,0.08)",
-                      border: `1px solid ${level === "critical" ? "rgba(239,68,68,0.25)" : level === "elevated" ? "rgba(249,115,22,0.25)" : "rgba(34,197,94,0.2)"}`,
-                      animation: level === "critical" ? "live-blink 2s ease-in-out infinite" : "none",
-                    }}
-                  >
-                    {meta.label}
-                  </span>
+                  <div className="flex flex-wrap items-center justify-end gap-1.5 mt-2">
+                    <span
+                      className="text-[10px] font-semibold px-2.5 py-0.5 rounded"
+                      style={{
+                        fontFamily: "var(--font-mono)",
+                        color: scoreColor,
+                        background: level === "critical" ? "rgba(239,68,68,0.1)" : level === "elevated" ? "rgba(249,115,22,0.1)" : "rgba(34,197,94,0.08)",
+                        border: `1px solid ${level === "critical" ? "rgba(239,68,68,0.25)" : level === "elevated" ? "rgba(249,115,22,0.25)" : "rgba(34,197,94,0.2)"}`,
+                        animation: level === "critical" ? "live-blink 2s ease-in-out infinite" : "none",
+                      }}
+                    >
+                      {meta.label}
+                    </span>
+                    {typeMeta && (
+                      <span
+                        className="text-[10px] font-semibold px-2.5 py-0.5 rounded"
+                        style={{
+                          fontFamily: "var(--font-mono)",
+                          color: typeMeta.color,
+                          background: `${typeMeta.color}18`,
+                          border: `1px solid ${typeMeta.color}40`,
+                        }}
+                      >
+                        {typeMeta.label}
+                      </span>
+                    )}
+                  </div>
                 </div>
               );
             })()}

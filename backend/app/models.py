@@ -20,6 +20,8 @@ class Page(Base):
     y = Column(Float, default=0.0, nullable=True)
     last_checked = Column(DateTime(timezone=True), nullable=True)
     summary = Column(String, nullable=True)
+    conflict_type = Column(String, nullable=True)
+    conflict_type_confidence = Column(Float, nullable=True)
 
     # Establish a one-to-many relationship from Page to Revision
     revisions = relationship("Revision", back_populates="page", cascade="all, delete-orphan")

@@ -28,7 +28,17 @@ next-env.d.ts
 *.txt
 *.md
 !README.md
+research/
 
 
 .vercel
 .env*
+
+tremor_version_b_labeled_dataset.csv
+backend/notability_disputes_candidates.csv
+backend/political_disputes_candidates.csv
+backend/ml/colab_runner.py
+backend/ml/kfold_eval.py
+backend/ml/train_classifier.py
+backend/scripts/identify_notability_v2.py
+backend/scripts/identify_political_disputes.py

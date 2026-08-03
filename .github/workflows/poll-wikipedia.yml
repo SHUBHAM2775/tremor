@@ -27,10 +27,17 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
+      - name: Cache Hugging Face Model
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/huggingface
+          key: hf-model-shubham2775-tremor-conflict-classifier
+
       - name: Run Polling Script
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
           REDIS_URL: ${{ secrets.REDIS_URL }}
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
         working-directory: backend
         run: |
           python scripts/poll_recent_changes.py

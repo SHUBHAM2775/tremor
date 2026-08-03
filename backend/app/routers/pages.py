@@ -33,6 +33,8 @@ class PageResponse(BaseModel):
     x: Optional[float] = None
     y: Optional[float] = None
     last_checked: Optional[datetime] = None
+    conflict_type: Optional[str] = None
+    conflict_type_confidence: Optional[float] = None
 
     class Config:
         from_attributes = True

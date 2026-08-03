@@ -9,6 +9,8 @@ export interface PageInfo {
   x: number | null;
   y: number | null;
   last_checked: string | null;
+  conflict_type: string | null;
+  conflict_type_confidence: number | null;
 }
 
 export interface Revision {
@@ -76,6 +78,29 @@ export const LEVEL_META = {
     scoreClass: "score-normal",
     dot: "#22c55e",
     dotPulse: false,
+  },
+};
+
+export const CONFLICT_TYPE_META: Record<string, { label: string; color: string }> = {
+  "Political/Ideological": {
+    label: "Political / Ideological",
+    color: "#e11d48",
+  },
+  "Factual/Sourcing": {
+    label: "Factual / Sourcing",
+    color: "#06b6d4",
+  },
+  "Conduct/Personal": {
+    label: "Conduct / Personal",
+    color: "#a855f7",
+  },
+  "Notability/Inclusion": {
+    label: "Notability / Inclusion",
+    color: "#f97316",
+  },
+  "Vandalism/Bad-faith": {
+    label: "Vandalism / Bad-faith",
+    color: "#eab308",
   },
 };
 
