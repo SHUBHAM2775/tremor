@@ -20,6 +20,7 @@ HEADERS = {
 }
 
 MAX_PROMOTIONS_PER_RUN = 20
+MAX_BACKFILL_CLASSIFICATIONS_PER_RUN = 30
 
 def safe_print(msg: str):
     try:
@@ -425,6 +426,37 @@ def poll_changes():
                         safe_print(f"ERROR: Failed to start auto-promotion thread in poll script: {e!r}")
         print(f"Finished candidate promotion. Promoted {buffered_candidates_count} candidates out of {candidates_checked} eligible high-conflict pages.")
         log_duration("Promoting candidates", t_buffer_start)
+
+    # Backfill classification pass for tracked pages missing conflict_type
+    t_backfill_start = time.time()
+    unclassified_pages = (
+        db.query(Page)
+        .filter(Page.conflict_type.is_(None))
+        .limit(MAX_BACKFILL_CLASSIFICATIONS_PER_RUN)
+        .all()
+    )
+    if unclassified_pages:
+        print(f"Backfill: Classifying conflict types for {len(unclassified_pages)} unclassified tracked pages...")
+        from app.ml.embeddings import prepare_text_for_page
+        from app.ml.classifier import classify_batch
+
+        texts = [prepare_text_for_page(p, db) for p in unclassified_pages]
+        classifications = classify_batch(texts)
+
+        for page, (ctype, confidence) in zip(unclassified_pages, classifications):
+            page.conflict_type = ctype  # type: ignore
+            page.conflict_type_confidence = confidence  # type: ignore
+            db.add(page)
+            safe_print(f" [BACKFILL CLASSIFY] '{page.title}' -> {ctype} ({confidence:.2f})")
+
+        db.commit()
+        try:
+            invalidate_page_caches()
+        except Exception:
+            pass
+        log_duration(f"Backfilling conflict classifications for {len(unclassified_pages)} pages", t_backfill_start)
+    else:
+        print("Backfill: No unclassified tracked pages found (all pages have conflict_type).")
 
     # If the run successfully queried the entire window, advance checkpoint to the window end
     if run_fully_completed:

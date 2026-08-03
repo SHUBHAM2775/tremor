@@ -275,7 +275,10 @@ def run_scoring_loop():
                 if updated > 0:
                     safe_log(f"[SCORER] Updated anomaly scores for {updated} pages.")
             finally:
-                db.close()
+                try:
+                    db.close()
+                except Exception:
+                    pass
         except Exception as e:
             safe_log(f"[SCORER] Error during scoring sweep: {e!r}")
 
@@ -325,7 +328,10 @@ def run():
             time.sleep(retry_delay)
             retry_delay = min(retry_delay * 2, max_delay)
         finally:
-            db.close()
+            try:
+                db.close()
+            except Exception:
+                pass
 
 
 if __name__ == "__main__":
