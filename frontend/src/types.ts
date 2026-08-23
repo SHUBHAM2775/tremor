@@ -48,6 +48,8 @@ export interface ClusterPage {
   cluster_id: number | null;
   x: number | null;
   y: number | null;
+  conflict_type?: string | null;
+  conflict_type_confidence?: number | null;
 }
 
 export type Level = "critical" | "elevated" | "normal";

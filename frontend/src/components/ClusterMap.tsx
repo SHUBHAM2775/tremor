@@ -1,6 +1,6 @@
 import React, { useMemo, useCallback, useState } from "react";
 import { Globe, RefreshCw, Crosshair, Search } from "lucide-react";
-import { ClusterPage, PageDetail, CLUSTER_COLORS, getLevel } from "../types";
+import { ClusterPage, PageDetail, CONFLICT_TYPE_META, getLevel } from "../types";
 import { InfoTooltip } from "./UtilityComponents";
 
 interface ClusterMapProps {
@@ -84,13 +84,57 @@ export const ClusterMap = React.memo(function ClusterMap({
     return { clusterCounts: counts, topClusterIds: topIds };
   }, [validNodes]);
 
+  // Color helper for individual page dots (based on conflict_type)
+  const getPageColor = useCallback((conflictType: string | null | undefined) => {
+    if (conflictType && CONFLICT_TYPE_META[conflictType]) {
+      return CONFLICT_TYPE_META[conflictType].color;
+    }
+    return "#9ca3af"; // neutral gray for unclassified/null
+  }, []);
+
+  // Compute each cluster's representative majority conflict_type
+  const clusterMajorityMeta = useMemo(() => {
+    const meta: Record<number, { conflict_type: string | null; label: string; color: string }> = {};
+    topClusterIds.forEach((cid) => {
+      const cNodes = validNodes.filter((n) => n.cluster_id === cid);
+      const counts: Record<string, number> = {};
+      cNodes.forEach((n) => {
+        if (n.conflict_type) {
+          counts[n.conflict_type] = (counts[n.conflict_type] || 0) + 1;
+        }
+      });
+      let majorityType: string | null = null;
+      let maxCount = 0;
+      Object.entries(counts).forEach(([type, count]) => {
+        if (count > maxCount) {
+          maxCount = count;
+          majorityType = type;
+        }
+      });
+
+      if (majorityType && CONFLICT_TYPE_META[majorityType]) {
+        meta[cid] = {
+          conflict_type: majorityType,
+          label: CONFLICT_TYPE_META[majorityType].label,
+          color: CONFLICT_TYPE_META[majorityType].color,
+        };
+      } else {
+        meta[cid] = {
+          conflict_type: null,
+          label: "Unclassified",
+          color: "#9ca3af",
+        };
+      }
+    });
+    return meta;
+  }, [validNodes, topClusterIds]);
+
   const getClusterColor = useCallback(
     (cid: number | null) => {
-      if (cid === null || cid === -1) return "#3f3f46";
-      const idx = topClusterIds.indexOf(cid);
-      return idx >= 0 ? CLUSTER_COLORS[idx % CLUSTER_COLORS.length] : "#3f3f46";
+      if (cid === null || cid === -1) return "#9ca3af";
+      return clusterMajorityMeta[cid]?.color || "#9ca3af";
     },
-    [topClusterIds]
+    [clusterMajorityMeta]
   );
 
   const { scaleX, scaleY } = useMemo(() => {
@@ -492,6 +536,7 @@ export const ClusterMap = React.memo(function ClusterMap({
               const overallDimmed = searchQuery ? !isQueryMatch : isDimmed;
 
               const r = isSel ? 6 : isHover ? 4.5 : 3;
+              const col = getPageColor(n.conflict_type);
 
               return (
                 <circle
@@ -499,11 +544,11 @@ export const ClusterMap = React.memo(function ClusterMap({
                   cx={n.cx}
                   cy={n.cy}
                   r={r / zoom}
-                  fill="#4b5563"
+                  fill={col}
                   stroke={isSel ? "#ffffff" : "#1f2937"}
                   strokeWidth={(isSel ? 1.2 : 0.5) / zoom}
                   className="cursor-pointer transition-all duration-150"
-                  style={{ opacity: overallDimmed ? 0.08 : 0.45 }}
+                  style={{ opacity: overallDimmed ? 0.08 : 0.65 }}
                   onClick={() => setSelectedId(n.id)}
                   onMouseEnter={() => setHoveredPage(n)}
                   onMouseLeave={() => setHoveredPage(null)}
@@ -518,7 +563,7 @@ export const ClusterMap = React.memo(function ClusterMap({
               const isSel = n.id === selectedId;
               const isComp = n.id === compareId;
               const isHover = hoveredPage?.id === n.id;
-              const col = getClusterColor(n.cluster_id);
+              const col = getPageColor(n.conflict_type);
               
               const isClusterTargeted = hoveredClusterId === n.cluster_id || selectedClusterId === n.cluster_id;
               const isClusterDimmed = (hoveredClusterId !== null && !isClusterTargeted) || (selectedClusterId !== null && !isClusterTargeted);
@@ -911,6 +956,7 @@ export const ClusterMap = React.memo(function ClusterMap({
           const score = info.anomaly_score || 0;
           const level = getLevel(score);
           const sc = level === "critical" ? "var(--color-critical)" : level === "elevated" ? "var(--color-elevated)" : "var(--color-normal)";
+          const typeMeta = info.conflict_type && CONFLICT_TYPE_META[info.conflict_type] ? CONFLICT_TYPE_META[info.conflict_type] : null;
           return (
             <div
               className="flex items-center justify-between gap-3 px-3 py-2.5 rounded text-xs"
@@ -920,8 +966,26 @@ export const ClusterMap = React.memo(function ClusterMap({
               }}
             >
               <div className="min-w-0">
-                <div className="font-semibold truncate" style={{ color: "var(--text-primary)", maxWidth: 160 }}>
-                  {info.title}
+                <div className="flex items-center gap-2">
+                  <span className="font-semibold truncate" style={{ color: "var(--text-primary)", maxWidth: 160 }}>
+                    {info.title}
+                  </span>
+                  {typeMeta ? (
+                    <span
+                      className="text-[9px] font-mono px-1.5 py-0.5 rounded font-medium shrink-0"
+                      style={{
+                        backgroundColor: `${typeMeta.color}20`,
+                        color: typeMeta.color,
+                        border: `1px solid ${typeMeta.color}40`,
+                      }}
+                    >
+                      {typeMeta.label}
+                    </span>
+                  ) : (
+                    <span className="text-[9px] font-mono px-1.5 py-0.5 rounded font-medium shrink-0 bg-zinc-800 text-zinc-400 border border-zinc-700">
+                      Unclassified
+                    </span>
+                  )}
                 </div>
                 <div
                   className="text-[10px] mt-0.5"
@@ -955,8 +1019,9 @@ export const ClusterMap = React.memo(function ClusterMap({
           Topic Clusters Inspector
         </span>
         <div className="flex-1 overflow-y-auto pr-1 flex flex-col gap-2">
-          {topClusterIds.map((cid, i) => {
-            const col = CLUSTER_COLORS[i % CLUSTER_COLORS.length];
+          {topClusterIds.map((cid) => {
+            const majorityMeta = clusterMajorityMeta[cid] || { conflict_type: null, label: "Unclassified", color: "#9ca3af" };
+            const col = majorityMeta.color;
             const count = clusterCounts[cid] || 0;
             const label = getClusterLabel(cid);
             const avgScore = clusterAvgScores[cid] || 0;
@@ -991,7 +1056,17 @@ export const ClusterMap = React.memo(function ClusterMap({
                       ({count} {count === 1 ? "pg" : "pgs"})
                     </span>
                   </div>
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span
+                      className="text-[9px] font-mono px-1.5 py-0.5 rounded font-medium shrink-0"
+                      style={{
+                        backgroundColor: `${col}20`,
+                        color: col,
+                        border: `1px solid ${col}40`,
+                      }}
+                    >
+                      {majorityMeta.label}
+                    </span>
                     <span className="text-[9px] uppercase tracking-wider text-[var(--text-subtle)] font-mono">
                       Avg Score:
                     </span>

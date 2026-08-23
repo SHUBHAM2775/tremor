@@ -17,6 +17,8 @@ class ClusterPageResponse(BaseModel):
     cluster_id: Optional[int] = None
     x: Optional[float] = None
     y: Optional[float] = None
+    conflict_type: Optional[str] = None
+    conflict_type_confidence: Optional[float] = None
 
     class Config:
         from_attributes = True
@@ -39,6 +41,8 @@ def get_clusters(limit: int = 200, db: Session = Depends(get_db)):
         Page.cluster_id,
         Page.x,
         Page.y,
+        Page.conflict_type,
+        Page.conflict_type_confidence,
     ).filter(
         Page.x.isnot(None),
         Page.y.isnot(None),
@@ -54,6 +58,8 @@ def get_clusters(limit: int = 200, db: Session = Depends(get_db)):
             "cluster_id": r.cluster_id,
             "x": r.x,
             "y": r.y,
+            "conflict_type": r.conflict_type,
+            "conflict_type_confidence": r.conflict_type_confidence,
         }
         for r in rows
     ]
