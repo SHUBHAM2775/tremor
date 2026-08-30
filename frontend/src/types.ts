@@ -13,6 +13,15 @@ export interface PageInfo {
   conflict_type_confidence: number | null;
 }
 
+export interface BufferInfo {
+  buffer_size: number;
+  total_tracked: number;
+  cap: number;
+  conflict_count?: number;
+  redis_available: boolean;
+  last_recalculated_at?: string | null;
+}
+
 export interface Revision {
   id: number;
   revision_id: number;

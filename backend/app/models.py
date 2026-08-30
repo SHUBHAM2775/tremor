@@ -51,3 +51,17 @@ class Revision(Base):
 
     def __repr__(self) -> str:
         return f"<Revision(id={self.id}, revision_id={self.revision_id}, page_id={self.page_id}, editor='{self.editor}')>"
+
+
+class ClusterMetadata(Base):
+    """
+    Stores system metadata and timestamps for clustering runs.
+    """
+    __tablename__ = "cluster_metadata"
+
+    id = Column(Integer, primary_key=True)
+    last_recalculated_at = Column(DateTime(timezone=True), nullable=True)
+
+    def __repr__(self) -> str:
+        return f"<ClusterMetadata(id={self.id}, last_recalculated_at='{self.last_recalculated_at}')>"
+

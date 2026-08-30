@@ -15,6 +15,7 @@ interface ClusterMapProps {
   hoveredClusterId: number | null;
   setHoveredClusterId: (id: number | null) => void;
   loadingRecluster: boolean;
+  reclusterMessage?: string | null;
   handleRecluster: () => void;
 }
 
@@ -34,6 +35,7 @@ export const ClusterMap = React.memo(function ClusterMap({
   hoveredClusterId,
   setHoveredClusterId,
   loadingRecluster,
+  reclusterMessage,
   handleRecluster,
 }: ClusterMapProps) {
   
@@ -847,30 +849,42 @@ export const ClusterMap = React.memo(function ClusterMap({
             </span>
           )}
         </div>
-        <button
-          id="recluster-btn"
-          onClick={handleRecluster}
-          disabled={loadingRecluster}
-          className="flex items-center gap-1.5 text-[10px] font-semibold cursor-pointer disabled:opacity-40 transition-colors duration-100 px-2.5 py-1 rounded border-0"
-          style={{
-            fontFamily: "var(--font-mono)",
-            background: "var(--bg-card)",
-            border: "1px solid var(--border-muted)",
-            color: "var(--text-muted)",
-          }}
-          onMouseEnter={(e) => {
-            e.currentTarget.style.borderColor = "var(--accent-border)";
-            e.currentTarget.style.color = "var(--accent-hi)";
-          }}
-          onMouseLeave={(e) => {
-            e.currentTarget.style.borderColor = "var(--border-muted)";
-            e.currentTarget.style.color = "var(--text-muted)";
-          }}
-          type="button"
-        >
-          <RefreshCw className={`w-3.5 h-3.5 ${loadingRecluster ? "animate-spin" : ""}`} />
-          Recalculate
-        </button>
+        <div className="flex items-center gap-2">
+          {loadingRecluster && (
+            <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-amber-500/10 text-amber-400 border border-amber-500/30 animate-pulse">
+              {reclusterMessage || "Recalculation started, this may take a minute"}
+            </span>
+          )}
+          <button
+            id="recluster-btn"
+            onClick={handleRecluster}
+            disabled={loadingRecluster}
+            title={loadingRecluster ? "Recalculation started, this may take a minute" : "Recalculate topic clusters via GitHub Actions"}
+            className="flex items-center gap-1.5 text-[10px] font-semibold cursor-pointer disabled:opacity-50 transition-colors duration-100 px-2.5 py-1 rounded border-0"
+            style={{
+              fontFamily: "var(--font-mono)",
+              background: "var(--bg-card)",
+              border: "1px solid var(--border-muted)",
+              color: loadingRecluster ? "var(--accent)" : "var(--text-muted)",
+            }}
+            onMouseEnter={(e) => {
+              if (!loadingRecluster) {
+                e.currentTarget.style.borderColor = "var(--accent-border)";
+                e.currentTarget.style.color = "var(--accent-hi)";
+              }
+            }}
+            onMouseLeave={(e) => {
+              if (!loadingRecluster) {
+                e.currentTarget.style.borderColor = "var(--border-muted)";
+                e.currentTarget.style.color = "var(--text-muted)";
+              }
+            }}
+            type="button"
+          >
+            <RefreshCw className={`w-3.5 h-3.5 ${loadingRecluster ? "animate-spin text-amber-400" : ""}`} />
+            {loadingRecluster ? "Recalculating..." : "Recalculate"}
+          </button>
+        </div>
       </div>
 
       {/* Cyberpunk Search HUD Input */}
@@ -905,8 +919,14 @@ export const ClusterMap = React.memo(function ClusterMap({
           >
             <Globe className="w-8 h-8" style={{ color: "var(--border)" }} />
             <div>
-              <p className="font-medium mb-1" style={{ color: "var(--text-muted)" }}>No topic map yet</p>
-              <p className="leading-relaxed">Click Recalculate to run UMAP + HDBSCAN and group tracked articles by topic similarity.</p>
+              <p className="font-medium mb-1" style={{ color: "var(--text-muted)" }}>
+                {loadingRecluster ? "Recalculation in progress" : "No topic map yet"}
+              </p>
+              <p className="leading-relaxed">
+                {loadingRecluster
+                  ? "UMAP and HDBSCAN are running via GitHub Actions. Map will update automatically once complete."
+                  : "Click Recalculate to run UMAP + HDBSCAN and group tracked articles by topic similarity."}
+              </p>
             </div>
           </div>
         ) : (

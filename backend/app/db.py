@@ -1,11 +1,12 @@
 import os
+from typing import Any, Dict
 from dotenv import load_dotenv
 from sqlalchemy import create_engine, event
 from sqlalchemy.orm import sessionmaker
 
 from app.models import Base
 
-load_dotenv()
+load_dotenv(override=True)
 
 DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./dev.db")
 if DATABASE_URL.startswith("postgres://"):
@@ -18,7 +19,7 @@ if DATABASE_URL.startswith("sqlite") or "sqlite" in DATABASE_URL:
 elif "postgresql" in DATABASE_URL or DATABASE_URL.startswith("postgres"):
     connect_args = {"connect_timeout": 10}
 
-engine_kwargs = {"connect_args": connect_args}
+engine_kwargs: Dict[str, Any] = {"connect_args": connect_args}
 if "postgresql" in DATABASE_URL or DATABASE_URL.startswith("postgres"):
     engine_kwargs["pool_pre_ping"] = True
     engine_kwargs["pool_recycle"] = 300

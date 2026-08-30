@@ -12,6 +12,7 @@ from app.models import Page, Revision
 from app.ingest.history_fetcher import fetch_and_store_history, API_URL, HEADERS
 from app.ml.anomaly import compute_page_anomaly_score
 from app.llm.summarize import generate_dispute_summary
+from app.ml.clustering import get_cluster_recalculated_timestamp
 from app.queue import (
     enqueue_track_job, get_job_status, cache_get, cache_set,
     is_redis_available, pop_candidates_from_buffer, get_candidate_buffer_size
@@ -262,7 +263,8 @@ def get_buffer_info(db: Session = Depends(get_db)):
         "total_tracked": db.query(Page).count(),
         "cap": 8000,
         "conflict_count": db.query(Page).filter(Page.anomaly_score > 1.5).count(),
-        "redis_available": is_redis_available()
+        "redis_available": is_redis_available(),
+        "last_recalculated_at": get_cluster_recalculated_timestamp(db),
     }
 
 
@@ -367,6 +369,18 @@ def get_page_detail(page_id: int, db: Session = Depends(get_db)):
     return {"page": page, "recent_revisions": revisions}
 
 
+def _ensure_utc(dt: datetime) -> datetime:
+    """Return dt as a UTC-aware datetime regardless of DB backend.
+
+    SQLite stores datetimes without timezone info (tz-naive), while PostgreSQL
+    preserves it.  Always calling .replace(tzinfo=UTC) on a naive datetime
+    is safe because all timestamps ingested by this app are already UTC.
+    """
+    if dt.tzinfo is None:
+        return dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(timezone.utc)
+
+
 @router.get("/{page_id}/timeline", response_model=TimelineResponse)
 def get_page_timeline(page_id: int, window_days: Optional[int] = None, db: Session = Depends(get_db)):
     """Aggregates edit and revert counts using an adaptive time window (72h -> 7d -> 30d -> all time)."""
@@ -429,8 +443,7 @@ def get_page_timeline(page_id: int, window_days: Optional[int] = None, db: Sessi
             current_time += timedelta(hours=1)
 
         for ts, is_revert in revisions:
-            if ts.tzinfo is not None:
-                ts = ts.astimezone(timezone.utc)
+            ts = _ensure_utc(ts)
             time_str = ts.strftime("%Y-%m-%d %H:00")
             if time_str in timeline_dict:
                 timeline_dict[time_str]["edits"] += 1
@@ -451,8 +464,7 @@ def get_page_timeline(page_id: int, window_days: Optional[int] = None, db: Sessi
             current_time += timedelta(days=1)
 
         for ts, is_revert in revisions:
-            if ts.tzinfo is not None:
-                ts = ts.astimezone(timezone.utc)
+            ts = _ensure_utc(ts)
             time_str = ts.strftime("%Y-%m-%d")
             if time_str in timeline_dict:
                 timeline_dict[time_str]["edits"] += 1
@@ -468,9 +480,7 @@ def get_page_timeline(page_id: int, window_days: Optional[int] = None, db: Sessi
         if not revisions:
             return TimelineResponse(window_label="All time", window_days=0, data=[])
 
-        earliest = revisions[0][0]
-        if earliest.tzinfo is not None:
-            earliest = earliest.astimezone(timezone.utc)
+        earliest = _ensure_utc(revisions[0][0])
 
         span_days = (now - earliest).days
         if span_days <= 7:
@@ -489,8 +499,7 @@ def get_page_timeline(page_id: int, window_days: Optional[int] = None, db: Sessi
             fmt = "%Y-%m-%d"
 
         for ts, is_revert in revisions:
-            if ts.tzinfo is not None:
-                ts = ts.astimezone(timezone.utc)
+            ts = _ensure_utc(ts)
             time_str = ts.strftime(fmt)
             if time_str in timeline_dict:
                 timeline_dict[time_str]["edits"] += 1

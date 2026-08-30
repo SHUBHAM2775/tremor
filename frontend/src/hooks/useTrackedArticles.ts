@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
-import { PageInfo, ClusterPage } from "../types";
+import { PageInfo, ClusterPage, BufferInfo } from "../types";
 import { API_BASE, safeFetchJson } from "../utils";
 
 export function useTrackedArticles() {
@@ -9,55 +9,92 @@ export function useTrackedArticles() {
   const [pagesLimit, setPagesLimit] = useState(300);
   const [apiError, setApiError] = useState<string | null>(null);
 
-  const [bufferInfo, setBufferInfo] = useState<{
-    buffer_size: number;
-    total_tracked: number;
-    cap: number;
-    conflict_count?: number;
-    redis_available: boolean;
-  } | null>(null);
+  const [bufferInfo, setBufferInfo] = useState<BufferInfo | null>(null);
 
   const [loadingLoadMore, setLoadingLoadMore] = useState(false);
   const [loadMoreMessage, setLoadMoreMessage] = useState<string | null>(null);
 
   const fetchBufferInfo = useCallback(async () => {
     try {
-      const data = await safeFetchJson<{
-        buffer_size: number;
-        total_tracked: number;
-        cap: number;
-        conflict_count?: number;
-        redis_available: boolean;
-      }>(`${API_BASE}/api/pages/buffer-info`);
+      const data = await safeFetchJson<BufferInfo>(`${API_BASE}/api/pages/buffer-info`);
       setBufferInfo(data);
+      return data;
     } catch (e) {
       console.error("Failed to fetch buffer info:", e);
+      return null;
     }
   }, []);
 
   const fetchOverview = useCallback(async () => {
     try {
-      const [pd, cd] = await Promise.all([
+      const [pd, cd, buf] = await Promise.all([
         safeFetchJson<PageInfo[]>(`${API_BASE}/api/pages?limit=${pagesLimit}`),
         safeFetchJson<ClusterPage[]>(`${API_BASE}/api/clusters?limit=1000`),
+        safeFetchJson<BufferInfo>(`${API_BASE}/api/pages/buffer-info`).catch(() => null),
       ]);
       setClusters(cd);
       setPages(pd);
+      if (buf) {
+        setBufferInfo(buf);
+      }
       setApiError(null);
-      await fetchBufferInfo();
     } catch (e: any) {
       console.error("Failed to fetch overview data:", e);
       setApiError(e?.message || "Backend service unreachable");
     } finally {
       setLoadingPages(false);
     }
-  }, [fetchBufferInfo, pagesLimit]);
+  }, [pagesLimit]);
 
-  // Initial and periodic polling
+  // Initial and periodic polling with Page Visibility API pause/resume
   useEffect(() => {
-    fetchOverview();
-    const iv = setInterval(fetchOverview, 15000);
-    return () => clearInterval(iv);
+    let timerId: NodeJS.Timeout | null = null;
+
+    const startPolling = () => {
+      if (timerId) {
+        clearInterval(timerId);
+        timerId = null;
+      }
+      timerId = setInterval(() => {
+        if (typeof document !== "undefined" && document.visibilityState === "visible") {
+          fetchOverview();
+        }
+      }, 60000);
+    };
+
+    const stopPolling = () => {
+      if (timerId) {
+        clearInterval(timerId);
+        timerId = null;
+      }
+    };
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "visible") {
+        fetchOverview();
+        startPolling();
+      } else {
+        stopPolling();
+      }
+    };
+
+    // Initial trigger and start interval if tab is currently visible
+    if (typeof document !== "undefined") {
+      if (document.visibilityState === "visible") {
+        fetchOverview();
+        startPolling();
+      }
+      document.addEventListener("visibilitychange", handleVisibilityChange);
+    } else {
+      fetchOverview();
+    }
+
+    return () => {
+      stopPolling();
+      if (typeof document !== "undefined") {
+        document.removeEventListener("visibilitychange", handleVisibilityChange);
+      }
+    };
   }, [fetchOverview]);
 
   const handleLoadMore = useCallback(async () => {

@@ -65,6 +65,9 @@ export default function Dashboard() {
   const [loadingDetail, setLoadingDetail] = useState(false);
   const [loadingSummary, setLoadingSummary] = useState(false);
   const [loadingRecluster, setLoadingRecluster] = useState(false);
+  const [reclusterMessage, setReclusterMessage] = useState<string | null>(null);
+  const reclusterInitialTsRef = React.useRef<string | null>(null);
+  const reclusterTimeoutRef = React.useRef<NodeJS.Timeout | null>(null);
   const [revisionsExpanded, setRevisionsExpanded] = useState(false);
 
   // States for interactive SVG hovering
@@ -86,6 +89,31 @@ export default function Dashboard() {
       setSelectedId(pages[0].id);
     }
   }, [pages, selectedId]);
+
+  // Monitor bufferInfo.last_recalculated_at to detect completion of cluster recalculation
+  useEffect(() => {
+    if (loadingRecluster && bufferInfo?.last_recalculated_at) {
+      const currentTs = bufferInfo.last_recalculated_at;
+      const initialTs = reclusterInitialTsRef.current;
+      if (initialTs !== null && currentTs !== initialTs) {
+        setLoadingRecluster(false);
+        setReclusterMessage(null);
+        if (reclusterTimeoutRef.current) {
+          clearTimeout(reclusterTimeoutRef.current);
+          reclusterTimeoutRef.current = null;
+        }
+      }
+    }
+  }, [loadingRecluster, bufferInfo?.last_recalculated_at]);
+
+  // Clean up timer on unmount
+  useEffect(() => {
+    return () => {
+      if (reclusterTimeoutRef.current) {
+        clearTimeout(reclusterTimeoutRef.current);
+      }
+    };
+  }, []);
 
   // Fetch detail for selected article
   const fetchDetail = useCallback(async (id: number) => {
@@ -146,22 +174,40 @@ export default function Dashboard() {
       .finally(() => setLoadingCompare(false));
   }, [compareId]);
 
-  // Re-clustering handler
+  // Re-clustering handler via GitHub Actions dispatch
   const handleRecluster = useCallback(async () => {
+    if (loadingRecluster) return;
     setLoadingRecluster(true);
+    setReclusterMessage("Recalculation started, this may take a minute");
+
     try {
-      const res = await safeFetchJson<{ message?: string }>(
+      const res = await safeFetchJson<{ message?: string; last_recalculated_at?: string | null }>(
         `${API_BASE}/api/clusters/recalculate`,
         { method: "POST" }
       );
-      alert(res.message || "Running.");
-      setTimeout(fetchOverview, 4000);
-    } catch (e) {
+      
+      reclusterInitialTsRef.current = res?.last_recalculated_at ?? bufferInfo?.last_recalculated_at ?? "";
+
+      // 90s safety timeout to automatically re-enable the button if workflow takes longer or signal missed
+      if (reclusterTimeoutRef.current) {
+        clearTimeout(reclusterTimeoutRef.current);
+      }
+      reclusterTimeoutRef.current = setTimeout(() => {
+        setLoadingRecluster(false);
+        setReclusterMessage(null);
+        fetchOverview();
+      }, 90000);
+    } catch (e: any) {
       console.error("recluster fail", e);
-    } finally {
+      alert(e?.message || "Failed to trigger cluster recalculation workflow on GitHub Actions.");
       setLoadingRecluster(false);
+      setReclusterMessage(null);
+      if (reclusterTimeoutRef.current) {
+        clearTimeout(reclusterTimeoutRef.current);
+        reclusterTimeoutRef.current = null;
+      }
     }
-  }, [fetchOverview]);
+  }, [loadingRecluster, bufferInfo?.last_recalculated_at, fetchOverview]);
 
   // ─── Derived stats ─────────────────────────────────────────────────────────
   const conflicts = useMemo(() => {
@@ -352,6 +398,7 @@ export default function Dashboard() {
           hoveredClusterId={hoveredClusterId}
           setHoveredClusterId={setHoveredClusterId}
           loadingRecluster={loadingRecluster}
+          reclusterMessage={reclusterMessage}
           handleRecluster={handleRecluster}
         />
       </div>

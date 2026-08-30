@@ -1,12 +1,14 @@
-from fastapi import APIRouter, Depends, BackgroundTasks
+import os
+import requests
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from typing import List, Optional
 from pydantic import BaseModel
 
-from app.db import get_db, SessionLocal
+from app.db import get_db
 from app.models import Page
-from app.ml.clustering import perform_clustering
-from app.queue import cache_get, cache_set, invalidate_page_caches
+from app.ml.clustering import get_cluster_recalculated_timestamp
+from app.queue import cache_get, cache_set
 
 router = APIRouter(prefix="/api/clusters", tags=["clusters"])
 
@@ -23,11 +25,19 @@ class ClusterPageResponse(BaseModel):
     class Config:
         from_attributes = True
 
+class ClusterStatusResponse(BaseModel):
+    last_recalculated_at: Optional[str] = None
+
+class RecalculateResponse(BaseModel):
+    message: str
+    last_recalculated_at: Optional[str] = None
+
+
 @router.get("", response_model=List[ClusterPageResponse])
 def get_clusters(limit: int = 200, db: Session = Depends(get_db)):
     """
     Returns coordinate and clustering data for top pages that have coordinates
-    calculated.  Response is cached in Redis for 30 s when available.
+    calculated.  Response is cached in Redis for 10 minutes when available.
     """
     cache_key = f"tremor:clusters_list:{limit}"
     cached = cache_get(cache_key)
@@ -67,18 +77,61 @@ def get_clusters(limit: int = 200, db: Session = Depends(get_db)):
     return result
 
 
-def background_recluster_task():
-    db = SessionLocal()
+@router.get("/status", response_model=ClusterStatusResponse)
+def get_cluster_status(db: Session = Depends(get_db)):
+    """
+    Returns cluster recalculation metadata timestamp.
+    """
+    return {"last_recalculated_at": get_cluster_recalculated_timestamp(db)}
+
+
+@router.post("/recalculate", response_model=RecalculateResponse)
+def recalculate_clusters(db: Session = Depends(get_db)):
+    """
+    Triggers UMAP & HDBSCAN recalculation of clusters by dispatching
+    a GitHub Actions workflow, offloading heavy ML memory consumption off the web service.
+    """
+    github_token = os.getenv("GITHUB_TOKEN")
+    repo_owner = os.getenv("GITHUB_REPO_OWNER")
+    repo_name = os.getenv("GITHUB_REPO_NAME")
+    ref = os.getenv("GITHUB_REF", "main")
+
+    current_recalculated_at = get_cluster_recalculated_timestamp(db)
+
+    if not github_token or not repo_owner or not repo_name:
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                "GitHub Actions integration is not configured on the server. "
+                "Ensure GITHUB_TOKEN, GITHUB_REPO_OWNER, and GITHUB_REPO_NAME environment variables are set."
+            ),
+        )
+
+    url = f"https://api.github.com/repos/{repo_owner}/{repo_name}/actions/workflows/recalculate-clusters.yml/dispatches"
+    headers = {
+        "Authorization": f"Bearer {github_token}",
+        "Accept": "application/vnd.github+json",
+        "X-GitHub-Api-Version": "2022-11-28",
+        "User-Agent": "Tremor-Backend",
+    }
+    payload = {"ref": ref}
+
     try:
-        perform_clustering(db)
-        # Invalidate caches after reclustering so next fetch is fresh
-        invalidate_page_caches()
-    finally:
-        db.close()
+        resp = requests.post(url, json=payload, headers=headers, timeout=10)
+        if resp.status_code == 204:
+            return {
+                "message": "Cluster recalculation workflow dispatched successfully to GitHub Actions.",
+                "last_recalculated_at": current_recalculated_at,
+            }
+        else:
+            error_body = resp.text
+            raise HTTPException(
+                status_code=resp.status_code if resp.status_code in [400, 401, 403, 404] else 502,
+                detail=f"GitHub Actions API returned error ({resp.status_code}): {error_body}",
+            )
+    except requests.RequestException as e:
+        raise HTTPException(
+            status_code=502,
+            detail=f"Failed to communicate with GitHub API: {str(e)}",
+        )
 
-
-@router.post("/recalculate")
-def recalculate_clusters(background_tasks: BackgroundTasks):
-    """Triggers UMAP & HDBSCAN recalculation of clusters in the background."""
-    background_tasks.add_task(background_recluster_task)
-    return {"message": "Started background recalculation of page topic clusters."}

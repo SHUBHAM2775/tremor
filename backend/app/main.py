@@ -1,6 +1,7 @@
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from starlette.middleware.gzip import GZipMiddleware
 from app.db import init_db
 from app.routers import pages, clusters, health
 
@@ -18,6 +19,9 @@ app = FastAPI(
     version="1.0.0",
     lifespan=lifespan
 )
+
+# GZip compression for responses >= 1,000 bytes
+app.add_middleware(GZipMiddleware, minimum_size=1000)
 
 # Configure CORS to allow communication with the Next.js frontend
 origins = ["http://localhost:3000", "http://127.0.0.1:3000"]

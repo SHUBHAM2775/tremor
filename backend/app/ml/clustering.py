@@ -1,11 +1,105 @@
 import gc
+from datetime import datetime, timezone
+from typing import Optional
 import numpy as np
 from sqlalchemy.orm import Session
 from app.db import SessionLocal
-from app.models import Page, Revision
+from app.models import Page, Revision, ClusterMetadata
 from app.ml.embeddings import generate_embeddings
+from app.queue import cache_get, cache_set, invalidate_page_caches, is_redis_available
 
 from sqlalchemy import func
+
+def update_cluster_recalculated_timestamp(db: Optional[Session] = None) -> datetime:
+    """
+    Updates the last_recalculated_at timestamp in Postgres and Redis.
+    """
+    now = datetime.now(timezone.utc)
+    close_db = False
+    if db is None:
+        db = SessionLocal()
+        close_db = True
+
+    try:
+        meta = db.query(ClusterMetadata).first()
+        if not meta:
+            meta = ClusterMetadata(id=1, last_recalculated_at=now)
+            db.add(meta)
+        else:
+            meta.last_recalculated_at = now
+        db.commit()
+    except Exception as e:
+        try:
+            db.rollback()
+        except Exception:
+            pass
+        try:
+            ClusterMetadata.__table__.create(bind=db.get_bind(), checkfirst=True)
+            meta = db.query(ClusterMetadata).first()
+            if not meta:
+                meta = ClusterMetadata(id=1, last_recalculated_at=now)
+                db.add(meta)
+            else:
+                meta.last_recalculated_at = now
+            db.commit()
+        except Exception as e2:
+            print(f"Error saving last_recalculated_at to DB: {e2}")
+    finally:
+        if close_db:
+            db.close()
+
+    try:
+        if is_redis_available():
+            cache_set("tremor:last_recalculated_at", now.isoformat(), ttl=86400 * 30)
+            invalidate_page_caches()
+    except Exception as e:
+        print(f"Error saving last_recalculated_at to Redis: {e}")
+
+    return now
+
+
+def get_cluster_recalculated_timestamp(db: Optional[Session] = None) -> Optional[str]:
+    """
+    Retrieves the last_recalculated_at ISO timestamp from Redis or Postgres.
+    """
+    try:
+        if is_redis_available():
+            cached = cache_get("tremor:last_recalculated_at")
+            if cached:
+                return str(cached)
+    except Exception:
+        pass
+
+    close_db = False
+    if db is None:
+        db = SessionLocal()
+        close_db = True
+
+    try:
+        meta = db.query(ClusterMetadata).first()
+        if meta and meta.last_recalculated_at:
+            ts = meta.last_recalculated_at
+            if ts.tzinfo is None:
+                ts = ts.replace(tzinfo=timezone.utc)
+            iso_ts = ts.isoformat()
+            if is_redis_available():
+                cache_set("tremor:last_recalculated_at", iso_ts, ttl=86400 * 30)
+            return iso_ts
+    except Exception as e:
+        try:
+            db.rollback()
+        except Exception:
+            pass
+        try:
+            ClusterMetadata.__table__.create(bind=db.get_bind(), checkfirst=True)
+        except Exception:
+            pass
+        return None
+    finally:
+        if close_db:
+            db.close()
+    return None
+
 
 def perform_clustering(db: Session):
     """
@@ -141,6 +235,9 @@ def perform_clustering(db: Session):
         raise e
     finally:
         new_db.close()
+
+    # Update metadata timestamp and invalidate Redis cache
+    update_cluster_recalculated_timestamp()
     
     # Summary printing
     unique_clusters = set(cluster_labels)
