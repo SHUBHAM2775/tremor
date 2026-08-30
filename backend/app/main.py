@@ -5,6 +5,7 @@ from starlette.middleware.gzip import GZipMiddleware
 from app.db import init_db
 from app.routers import pages, clusters, health
 
+from typing import Any, Dict
 import os
 
 @asynccontextmanager
@@ -29,7 +30,7 @@ extra_origins = os.getenv("CORS_ORIGINS")
 if extra_origins:
     origins.extend([o.strip() for o in extra_origins.split(",") if o.strip()])
 
-cors_kwargs = {
+cors_kwargs: Dict[str, Any] = {
     "allow_origins": origins,
     "allow_credentials": True,
     "allow_methods": ["*"],

@@ -532,7 +532,7 @@ def get_page_summary(page_id: int, db: Session = Depends(get_db)):
     )
     summary = generate_dispute_summary(page, revisions)
     
-    page.summary = summary
+    page.summary = summary  # type: ignore
     db.commit()
     
     return {"summary": summary}

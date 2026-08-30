@@ -26,7 +26,7 @@ def update_cluster_recalculated_timestamp(db: Optional[Session] = None) -> datet
             meta = ClusterMetadata(id=1, last_recalculated_at=now)
             db.add(meta)
         else:
-            meta.last_recalculated_at = now
+            meta.last_recalculated_at = now  # type: ignore
         db.commit()
     except Exception as e:
         try:
@@ -40,7 +40,7 @@ def update_cluster_recalculated_timestamp(db: Optional[Session] = None) -> datet
                 meta = ClusterMetadata(id=1, last_recalculated_at=now)
                 db.add(meta)
             else:
-                meta.last_recalculated_at = now
+                meta.last_recalculated_at = now  # type: ignore
             db.commit()
         except Exception as e2:
             print(f"Error saving last_recalculated_at to DB: {e2}")
