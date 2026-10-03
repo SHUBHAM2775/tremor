@@ -5,6 +5,7 @@ torch
 fastapi
 uvicorn[standard]
 sqlalchemy
+psycopg[binary]
 psycopg2-binary
 python-dotenv
 pydantic
